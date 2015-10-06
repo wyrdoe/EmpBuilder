@@ -98,8 +98,14 @@ class Mission_factory():
             for i in range(NUM_MISSION_TYPES):
                 shuffle(self.all_missions[i])
     def get_mission(self,mission_type=None):
-        if not mission_type:
+        assert(sum(self.mission_index)<sum((len(mis) for mis in self.all_missions)))
+        if mission_type != None:
+            assert(self.mission_index[mission_type] < len(self.all_missions[mission_type]))
+            
+        while mission_type == None:
             mission_type = randint(0,NUM_MISSION_TYPES-1)
+            if self.mission_index[mission_type] >= len(self.all_missions[mission_type]):
+                mission_type = None
         self.mission_index[mission_type] += 1
         return self.all_missions[mission_type][self.mission_index[mission_type]-1]
     def __repr__(self):
@@ -109,26 +115,36 @@ class Mission_factory():
             
             
 class Player:
-    def __init__(self,mission_factory,player_number):
+    def __init__(self,player_number):
         self.player_number = player_number
         self.missions = []
-        self.underlings = []
-        for mission in range(NUM_MISSIONS_EACH):
-            self.missions.append(mission_factory.get_mission())
+        self.underlings = []       
     def __repr__(self):
         return 'player_number: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,
                                                                        '\n'.join((str(m) for m in self.missions)),
                                                                        '\n'.join(self.underlings))
+    def give_mission(self,a_mission):
+        self.missions.append(a_mission)
         
 class GameObject:
     def __init__(self,num_players):
         self.map_grid = Map_grid()
         self.mission_factory = Mission_factory()
         self.players = []
-        for p in range(num_players):
-            self.players.append(Player(self.mission_factory,p))
+        for player_num in range(num_players):
+            self.players.append(Player(player_num))
+        assert(NUM_MISSIONS_EACH > NUM_MISSION_TYPES)
+        #Give each player one mission of each type
+        for mission_type in range(NUM_MISSION_TYPES):
+            for a_player in self.players:
+                a_player.give_mission(self.mission_factory.get_mission(mission_type))
+        #Give each player the rest of their missions
+        for mission in range(NUM_MISSIONS_EACH-NUM_MISSION_TYPES):
+            for a_player in self.players:
+                a_player.give_mission(self.mission_factory.get_mission())
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.players)])
-NUM_MISSIONS_EACH = 5
+NUM_MISSIONS_EACH = 7
 NUM_MISSION_TYPES = 3
-print GameObject(2)
+if __name__ == "__main__":
+    print GameObject(2)
