@@ -64,7 +64,6 @@ class Map_grid:
                 line.append(str(self.map_tiles[y][x]))
             lines.append(' '.join(line))
         return '\n'.join(lines)
-
 class Mission():
     def __init__(self, line):
         line_split = line.strip().split()
@@ -112,7 +111,49 @@ class Mission_factory():
         a_str = self.fields+'\n'
 ##        print all_missions
         return a_str+'\n'.join((str(m) for mis in self.all_missions for m in mis))
-            
+
+class Underling_factory():
+    def __init__(self):
+        with open('underlings.txt','r') as underling_file:
+            self.fields = underling_file.readline()
+            self.all_underlings = [[] for i in range(NUM_UNDERLING_TYPES)]
+            self.underling_index = [0 for i in range(NUM_UNDERLING_TYPES)]
+            underling_type_lookup = {'START':0,
+                                     'AGE1':1,
+                                     'AGE2':2,
+                                     'AGE3':3}
+            for underling_num, line in enumerate(underling_file.read().split('\n')):
+                a_underling = Underling(line)
+                self.all_underlings[underling_type_lookup[a_underling.underling_type]].append(a_underling)
+            for i in range(NUM_UNDERLING_TYPES):
+                shuffle(self.all_underlings[i])
+    def get_underling(self, underling_type, underling_index=None):
+        assert(underling_type < NUM_UNDERLING_TYPES)
+        assert(underling_type == 0 or underling_index==0)
+        if underling_type == 0:
+            assert(underling_index < len(self.all_underlings[underling_type]))
+            return self.all_underlings[underling_type]
+        else:
+            self.underling_index[underling_type] += 1
+            return self.all_underlings[self.underling_index[underling_type]-1]
+            pass
+        if underlind_index == None:
+            self.underling_index += 1      
+        #TODO return underling
+    def __repr__(self):
+        a_str = self.fields+'\n'
+        return a_str+'\n'.join((str(u) for und in self.all_underlings for u in und))
+        #TODO
+
+class Underling():
+    def __init__(self,line):
+        self.underling_type = 'START'
+        pass
+        #TODO
+    def __repr__(self):
+        return ''
+        #TODO
+    
             
 class Player:
     def __init__(self,player_number):
@@ -122,14 +163,17 @@ class Player:
     def __repr__(self):
         return 'player_number: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,
                                                                        '\n'.join((str(m) for m in self.missions)),
-                                                                       '\n'.join(self.underlings))
+                                                                       '\n'.join((str(u) for u in self.underlings)))
     def give_mission(self,a_mission):
         self.missions.append(a_mission)
+    def give_underling(self,a_underling):
+        self.underlings.append(a_underling)
         
 class GameObject:
     def __init__(self,num_players):
         self.map_grid = Map_grid()
         self.mission_factory = Mission_factory()
+        self.underling_factory = Underling_factory()
         self.players = []
         for player_num in range(num_players):
             self.players.append(Player(player_num))
@@ -142,8 +186,14 @@ class GameObject:
         for mission in range(NUM_MISSIONS_EACH-NUM_MISSION_TYPES):
             for a_player in self.players:
                 a_player.give_mission(self.mission_factory.get_mission())
+        #Give players starting Underlings
+        for underling in range(NUM_UNDERLINGS):
+            for a_player in self.players:
+                a_player.give_underling(self.underling_factory.get_underling(0,underling))
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.players)])
+NUM_UNDERLINGS = 5
+NUM_UNDERLING_TYPES = 4
 NUM_MISSIONS_EACH = 7
 NUM_MISSION_TYPES = 3
 if __name__ == "__main__":
