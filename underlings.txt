@@ -1,26 +1,7 @@
-Colour Num_Groups Points Connected Condition
-green    1        5       1       1 grass, 1 desert
-green    1        5       1       1 grass, 1 mountain
-green    1        5       1       1 grass, 1 forest
-green    1        5       1       1 desert, 1 mountain
-green    1        5       1       1 desert, 1 forest
-green    1        5       1       1 mountain, 1 forest
-green    1        5       1       2 grass, 2 not grass
-green    1        5       1       2 desert, 2 not desert
-green    1        5       1       2 mountain, 2 not mountain
-green    1        5       1       2 forest, 2 not forest
-blue     1        5       1       same river
-blue     1        5       1       no river
-blue     1        5       1       Same terrain
-blue     1        5       1       triangle, different terrain
-blue     1        5       1       diamond
-blue     1        6       1       3 city
-red      1        5       1       touch citadel share
-red      1        5       1       touch citadel, shield
-red      1        5       1       city touch opponent city
-red      1        5       1       city shield
-red      1        5       1       3 terrain, shield
-red      1        5       1       shield, touch opponent
-red      2        1       0       5 points, 1 space
-red      2        3       0       same terrain
-red      2        3       0       same opponent
+type; cost; on_buy on_pass; name; activate;
+start; 0; 0; 1; builder; build 4W, cross terrain 2W;
+start; 0; 0; 1; architect; upgrade 3S3G;
+start; 0; 0; 1; woodsman; gain 2W;
+start; 0; 0; 1; gatherer; gain 1s1sw;
+start; 0; 0; 1; artisan; gain 1g;
+age1; 3; 0; 1; nomad builder; build 4W, jump hex 1W;
