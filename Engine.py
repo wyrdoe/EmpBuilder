@@ -7,16 +7,17 @@ class Tile:
         self.terrain = terrain if terrain != '.' else None
         self.neighbours = []
         self.owner = None
+        self.citadel = 'C'
     def add_neighbour(self,neighbour):
         if neighbour.terrain != None and self.terrain != None:
             self.neighbours.append(neighbour)
         else:
             return False
         return True
-    def get_neighbours():
+    def get_neighbours(self):
         return self.neighbours
-    def construct(player_num):
-        if not self.owner:
+    def construct(self,player_num):
+        if not self.owner and self.terrain != self.citadel:
             self.owner = player_num
             self.building_level = 1
         else:
@@ -24,15 +25,29 @@ class Tile:
         return True
     def get_owner(self):
         return self.owner
-    def upgrade(player_num):
-        if self.get_owner() == player_num:
+    def upgrade(self,player_num):
+        if self.owner == player_num:
             self.building_level += 1
         else:
             return False
         return True
     def __repr__(self):
-        return self.terrain if self.terrain else '.'
+        return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
+        
 class Map_grid:
+    #all_dirs = ((0,-1), (0,1), (-1,-1), (-1,0), (1,-1), (1,0))
+    #all_dirs = ((0,-1), (0,1), (-1, 1), (-1,0), (1, 0), (1,1))
+    def dirs_down_right(self,row):
+        if row % 2 == 1:
+            return ((0,1), (1,-1), (1,0))
+        else:
+            return ((0,1), (1, 0), (1,1))
+    def dirs_up_left(self,row):
+        if row % 2 == 1:
+            return ((0,-1), (-1,0), (-1,-1))
+        else:
+            return ((0,-1), (-1,0), (-1, 1))
+        
     def __init__(self):
         with open('map.txt','r') as map_file:
             self.map_dimension = int(map_file.readline())
@@ -40,13 +55,7 @@ class Map_grid:
             for y, line in enumerate(map_file.read().split('\n')):
                 for x, terrain in enumerate(line.strip().split(' ')):
                     self.map_tiles[y][x] = Tile(y, x, terrain)
-                    if y % 2 == 1:
-                        #all_dirs = ((0,-1), (0,1), (-1,-1), (-1,0), (1,-1), (1,0))
-                        all_dirs = ((0,-1), (-1,0), (-1,-1))
-                    else:
-                        #all_dirs = ((0,-1), (0,1), (-1, 1), (-1,0), (1, 0), (1,1))
-                        all_dirs = ((0,-1), (-1,0), (-1, 1))
-                    for dir_x, dir_y in all_dirs:
+                    for dir_x, dir_y in self.dirs_up_left(y):
                         self.add_mutual_neighbours(self.map_tiles[y][x],dir_x,dir_y)
     def add_mutual_neighbours(self, tile_a,x,y):
         if x > 0 and x < self.map_dimension and y > 0 and y < self.map_dimension:
@@ -56,11 +65,18 @@ class Map_grid:
     def __repr__(self):
         lines = [str(self.map_dimension)]
         for y in range(self.map_dimension):
-            line = [''] if y % 2 else []
+            line = [' '] if y % 2 else []
             for x in range(self.map_dimension):
                 line.append(str(self.map_tiles[y][x]))
             lines.append(' '.join(line))
         return '\n'.join(lines)
+    def connected_group(self,player_num,score):
+        pass#TODO
+    def build_at(self,x,y,player_num):
+        return self.map_tiles[y][x].construct(player_num)
+    def upgrade_at(self,x,y,player_num):
+        return self.map_tiles[y][x].upgrade(player_num)
+        
 class Mission():
     def __init__(self, line):
         line_split = line.strip().split(';')
@@ -179,15 +195,24 @@ class Player:
         self.missions.append(a_mission)
     def give_underling(self,a_underling):
         self.underlings.append(a_underling)
+    def replace_underling(self,a_underling,b_underling):
+        try:
+            ind = self.underlings.index(a_underling)
+        except ValueError:
+            assert(0)
+        self.underlings[ind] = b_underling
+        
+    def new_round(self):
+        self.reset_underlings()
     def reset_underlings(self):
         pass
         #TODO
 
 class Shop:
     def __init__(self, underling_factory):
+        self.current_round = 0
         self.underling_factory = underling_factory
-        self.shop_underlings = [[None for i in range(NUM_UNDERLINGS_SHOP_TIER)] for i in range(NUM_SHOP_TIERS)]
-        self.new_round(1)
+        self.shop_underlings = [[None for i in range(NUM_UNDERLINGS_SHOP_TIER)] for i in range(NUM_SHOP_TIERS)]        
     def __repr__(self):
         astr = []
         for i in range(NUM_SHOP_TIERS):
@@ -195,6 +220,8 @@ class Shop:
             astr += [str(und) for und in self.shop_underlings[i]]
         return '\n'.join(astr)
     def new_round(self, round_number):
+        assert (round_number == self.current_round+1)
+        self.current_round = round_number
         for und_index in range(NUM_UNDERLINGS_SHOP_TIER):
             for shop_tier in range(NUM_SHOP_TIERS)[::-1]:
                 if shop_tier == NUM_SHOP_TIERS - 1:
@@ -203,7 +230,7 @@ class Shop:
                 else:
                     self.shop_underlings[shop_tier+1][und_index] = self.shop_underlings[shop_tier][und_index]
         age = self.check_age(round_number)
-        self.shop_underlings[0] = [ self.underling_factory.get_underling(age) for i in range(NUM_UNDERLINGS_SHOP_TIER)]
+        self.shop_underlings[0] = [self.underling_factory.get_underling(age) for i in range(NUM_UNDERLINGS_SHOP_TIER)]
     def check_age(self, round_number):
         age = 0
         if round_number <= 4:
@@ -213,10 +240,23 @@ class Shop:
         else:
             age = 3
         return age
-            
+
+    def buy_underling(self,a_underling):
+        for shop_tier in range(NUM_SHOP_TIERS):
+            for und_index in range(NUM_UNDERLINGS_SHOP_TIER):
+                if self.shop_underlings[shop_tier][und_index] == a_underling:
+                    self.shop_underlings[shop_tier][und_index] = None
+                    return a_underling
+        for tier in self.shop_underlings:
+            for underling in tier:
+                if a_underling == underling:
+                    return a_underling
+        return None
+                
         
 class GameObject:
     def __init__(self,num_players):
+        self.current_round = 0
         self.map_grid = Map_grid()
         self.mission_factory = Mission_factory()
         self.underling_factory = Underling_factory()
@@ -237,8 +277,16 @@ class GameObject:
         for underling in range(NUM_UNDERLINGS):
             for a_player in self.players:
                 a_player.give_underling(self.underling_factory.get_underling(0,underling))
+        self.new_round()
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.underling_factory),str(self.shop), '\n'.join((str(p) for p in self.players))])
+
+    def new_round(self):
+        self.current_round += 1
+        self.shop.new_round(self.current_round)
+        for player in self.players:
+            player.new_round() 
+
 NUM_UNDERLINGS_SHOP_TIER = 5
 NUM_SHOP_TIERS = 2
 NUM_UNDERLINGS = 5
@@ -248,5 +296,13 @@ NUM_MISSION_TYPES = 3
 if __name__ == "__main__":
     go = GameObject(2)
     print go
+    go.map_grid.build_at(2,6,0)
+    go.map_grid.build_at(2,7,0)
+    go.map_grid.build_at(3,7,0)
+    go.map_grid.build_at(4,7,0)
+    go.map_grid.upgrade_at(3,7,0)
+    
     go.shop.new_round(2)
+    go.shop.new_round(3)
+    go.shop.new_round(4)
     print go
