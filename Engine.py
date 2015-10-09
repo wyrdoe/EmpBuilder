@@ -49,10 +49,10 @@ class Map_grid:
                         self.add_mutual_neighbours(self.map_tiles[x][y],x+dir_x,y+dir_y)
     def __repr__(self):
         lines = [str(self.map_dimension)]
-        for x in range(self.map_dimension):
-            line = [' '] if x % 2 else []
-            for y in range(self.map_dimension):
-                line.append(str(self.map_tiles[y][x]))
+        for col in range(self.map_dimension):
+            line = [' '] if col % 2 else []
+            for row in range(self.map_dimension):
+                line.append(str(self.map_tiles[row][col]))
             lines.append(' '.join(line))
         return '\n'.join(lines)
     
@@ -98,10 +98,9 @@ class Map_grid:
         valid_combinations = []
         for group in self.connected_groups(player_num):
             #Minimum size is points / 2 since cities are worth 2 points
-            for group_size in range((points+1)/2,points):
+            for group_size in range((points+1)/2,points+1):
                 for comb in combinations(group,group_size):
                     score = 0
-                    
                     for ind, val_a in enumerate(comb):
                         coord_a = self.val_to_coord(val_a)
                         score += self.map_tiles[coord_a[0]][coord_a[1]].building_level
@@ -403,7 +402,7 @@ if __name__ == "__main__":
     go.shop.new_round(4)
     
     print go.map_grid
-    for i,vals in enumerate(go.map_grid.find_max_number_groups(0,5)):
+    for i,vals in enumerate(go.map_grid.find_max_number_groups(0,3)):
         print 'group {} found'.format(i),[go.map_grid.val_to_coord(val) for val in vals]
 
     
