@@ -1,4 +1,5 @@
 from random import shuffle, randint
+from itertools import combinations
 
 class Tile:
     def __init__(self,x,y,terrain):
@@ -31,51 +32,118 @@ class Tile:
         else:
             return False
         return True
+    def coords(self):
+        return (self.x,self.y)
     def __repr__(self):
         return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
         
 class Map_grid:
-    #all_dirs = ((0,-1), (0,1), (-1,-1), (-1,0), (1,-1), (1,0))
-    #all_dirs = ((0,-1), (0,1), (-1, 1), (-1,0), (1, 0), (1,1))
-    def dirs_down_right(self,row):
-        if row % 2 == 1:
-            return ((0,1), (1,-1), (1,0))
-        else:
-            return ((0,1), (1, 0), (1,1))
-    def dirs_up_left(self,row):
-        if row % 2 == 1:
-            return ((0,-1), (-1,0), (-1,-1))
-        else:
-            return ((0,-1), (-1,0), (-1, 1))
-        
     def __init__(self):
         with open('map.txt','r') as map_file:
             self.map_dimension = int(map_file.readline())
             self.map_tiles = [[0]*self.map_dimension for i in range(self.map_dimension)]
             for y, line in enumerate(map_file.read().split('\n')):
                 for x, terrain in enumerate(line.strip().split(' ')):
-                    self.map_tiles[y][x] = Tile(y, x, terrain)
-                    for dir_x, dir_y in self.dirs_up_left(y):
-                        self.add_mutual_neighbours(self.map_tiles[y][x],dir_x,dir_y)
-    def add_mutual_neighbours(self, tile_a,x,y):
-        if x > 0 and x < self.map_dimension and y > 0 and y < self.map_dimension:
-            tile_b = self.map_tiles[x1][y1]
-            assert(tile_a.add_neighbour(tile_b) == tile_b.add_neighbour(tile_a))
-
+                    self.map_tiles[x][y] = Tile(x, y, terrain)
+                    for dir_y, dir_x in self.dirs_up_left(y):
+                        self.add_mutual_neighbours(self.map_tiles[x][y],x+dir_x,y+dir_y)
     def __repr__(self):
         lines = [str(self.map_dimension)]
-        for y in range(self.map_dimension):
-            line = [' '] if y % 2 else []
-            for x in range(self.map_dimension):
+        for x in range(self.map_dimension):
+            line = [' '] if x % 2 else []
+            for y in range(self.map_dimension):
                 line.append(str(self.map_tiles[y][x]))
             lines.append(' '.join(line))
         return '\n'.join(lines)
-    def connected_group(self,player_num,score):
-        pass#TODO
+    
+    #all_dirs = ((0,-1), (0,1), (-1,-1), (-1,0), (1,-1), (1,0))
+    #all_dirs = ((0,-1), (0,1), (-1, 1), (-1,0), (1, 0), (1,1))
+    def dirs_down_right(self,row):
+        if row % 2 != 1:
+            return ((0,1), (1,-1), (1,0))
+        else:
+            return ((0,1), (1, 0), (1,1))
+    def dirs_up_left(self,row):
+        if row % 2 != 1:
+            return ((0,-1), (-1,0), (-1,-1))
+        else:
+            return ((0,-1), (-1,0), (-1, 1))
+    def add_mutual_neighbours(self, tile_a,x,y):
+        if x >= 0 and x < self.map_dimension and y >= 0 and y < self.map_dimension:
+            tile_b = self.map_tiles[x][y]
+            assert(tile_a.add_neighbour(tile_b) == tile_b.add_neighbour(tile_a))
+    def coord_to_val(self,x,y):
+        return y * self.map_dimension + x
+    def val_to_coord(self,val):
+        return val % self.map_dimension, val/self.map_dimension
+    #Check if a list of sets contain any overlapping items
+    def sets_overlap(self,list_of_sets):
+        for i,a in enumerate(list_of_sets):
+            for j,b in enumerate(list_of_sets):
+                if i != j:
+                    if any(k in a for k in b):
+                        return True
+        return False
+    def find_max_number_groups(self,player_num,points):
+        valid_combinations = self.find_groups_worth_points(player_num,points)
+        for num in range(1,len(valid_combinations))[::-1]:
+            for comb in combinations(valid_combinations,num):
+                complimentary = True
+                #check no tiles are used multiple times
+                if not self.sets_overlap(comb):
+                    return comb
+        return None
+    #find all subgroups which meet the points criteria #TODO do we want to test condition here too?
+    def find_groups_worth_points(self,player_num,points):
+        valid_combinations = []
+        for group in self.connected_groups(player_num):
+            #Minimum size is points / 2 since cities are worth 2 points
+            for group_size in range((points+1)/2,points):
+                for comb in combinations(group,group_size):
+                    score = 0
+                    
+                    for ind, val_a in enumerate(comb):
+                        coord_a = self.val_to_coord(val_a)
+                        score += self.map_tiles[coord_a[0]][coord_a[1]].building_level
+                        if ind >= len(comb)-1:
+                            conditions_met = score >= points
+                        else:
+                            conditions_met = False
+                            for val_b in comb[ind+1:]:
+                                coord_b = self.val_to_coord(val_b)
+                                if self.map_tiles[coord_a[0]][coord_a[1]] in self.map_tiles[coord_b[0]][coord_b[1]].get_neighbours():
+                                    conditions_met = True
+                                    break
+                        if not conditions_met:
+                            break
+                    if conditions_met:
+                        valid_combinations.append(comb)
+        return valid_combinations
+
+    #return list of all connected groups belonging to one player
+    def connected_groups(self,owner):
+        found_groups = []
+        for row, tile_row in enumerate(self.map_tiles):
+            for col, tile in enumerate(tile_row):
+                if tile.get_owner() == owner:
+                    val = self.coord_to_val(row,col)
+                    if not any((val in found_group for found_group in found_groups)):
+                        group = set()
+                        self.recurse_connections(tile,owner,group)
+                        found_groups.append(group)
+        return found_groups
+    
+    #find all connected settlements
+    def recurse_connections(self,tile,owner,group_so_far):
+        group_so_far.add(self.coord_to_val(*tile.coords()))
+        for a_tile in tile.get_neighbours():
+            if a_tile.get_owner() == owner and self.coord_to_val(*a_tile.coords()) not in group_so_far:
+                self.recurse_connections(a_tile,owner,group_so_far)
+                    
     def build_at(self,x,y,player_num):
-        return self.map_tiles[y][x].construct(player_num)
+        return self.map_tiles[x][y].construct(player_num)
     def upgrade_at(self,x,y,player_num):
-        return self.map_tiles[y][x].upgrade(player_num)
+        return self.map_tiles[x][y].upgrade(player_num)
         
 class Mission():
     def __init__(self, line):
@@ -174,11 +242,31 @@ class Underling():
         self.activations = []
         for act in self.activate_text.split(','):
             self.activations.append(self.activation_parse(act.strip()))
+        self.reset()
     def __repr__(self):
         return '{:6} {:4} {:4} {:4} {:20} {}'.format(self.underling_type,self.cost,self.on_buy, self.on_pass, self.name,self.activate_text)
     def activation_parse(self,activate_text):
         pass
         #TODO
+    def activate(self):
+        success = False
+        if not self.is_active:
+            success = True
+            #TODO
+            self.position = -1
+        return success
+    def do_pass(self):
+        success = False
+        if self.position == 0:
+            success = True
+            #TODO
+            self.position = 1
+        return success
+    def reset(self):
+        self.position = 0
+    def has_action(self):
+        return self.position == 0
+    
     
 #Each player has a set of missions and a collection of underlings, they also have resource cubes
 class Player:
@@ -201,12 +289,15 @@ class Player:
         except ValueError:
             assert(0)
         self.underlings[ind] = b_underling
-        
     def new_round(self):
-        self.reset_underlings()
-    def reset_underlings(self):
-        pass
-        #TODO
+        for underling in self.underlings:
+            underling.reset()
+    #a player is passed when all underlings have been used
+    def is_passed():
+        for underling in self.underlings:
+            if underling.has_action():
+                return False
+        return True
 
 class Shop:
     def __init__(self, underling_factory):
@@ -295,14 +386,24 @@ NUM_MISSIONS_EACH = 7
 NUM_MISSION_TYPES = 3
 if __name__ == "__main__":
     go = GameObject(2)
-    print go
+    
     go.map_grid.build_at(2,6,0)
+    go.map_grid.build_at(1,6,0)
     go.map_grid.build_at(2,7,0)
     go.map_grid.build_at(3,7,0)
     go.map_grid.build_at(4,7,0)
+    go.map_grid.build_at(5,6,0)
+    go.map_grid.build_at(4,5,0)
+    go.map_grid.build_at(3,5,0)
     go.map_grid.upgrade_at(3,7,0)
-    
+    go.map_grid.upgrade_at(4,5,0)
+
     go.shop.new_round(2)
     go.shop.new_round(3)
     go.shop.new_round(4)
-    print go
+    
+    print go.map_grid
+    for i,vals in enumerate(go.map_grid.find_max_number_groups(0,5)):
+        print 'group {} found'.format(i),[go.map_grid.val_to_coord(val) for val in vals]
+
+    
