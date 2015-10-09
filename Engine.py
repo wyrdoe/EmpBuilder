@@ -238,23 +238,28 @@ class Underling():
         self.on_pass  = line_split[3].strip()
         self.name     = line_split[4].strip()
         self.activate_text = " ".join(line_split[5:]).lower().strip()
-        self.activations = []
-        for act in self.activate_text.split(','):
-            self.activations.append(self.activation_parse(act.strip()))
+        #self.activations = []
+        #for act in self.activate_text.split(','):
+        #    self.activations.append(self.activation_parse(act.strip()))
         self.reset()
     def __repr__(self):
         return '{:6} {:4} {:4} {:4} {:20} {}'.format(self.underling_type,self.cost,self.on_buy, self.on_pass, self.name,self.activate_text)
     def activation_parse(self,activate_text):
         pass
         #TODO
-    def activate(self):
+    def activate(self,owner):
         success = False
         if not self.is_active:
             success = True
-            #TODO
+            #do first action, and then if sucessful, do further actions
+            for action in self.activate_text.split(','):
+                #an act may be split up into several options choose one:
+                for act in action.split('|'):
+                    #TODO make owner choose
+                    success = do_act(act.strip(),owner)
             self.position = -1
         return success
-    def do_pass(self):
+    def do_pass(self,owner):
         success = False
         if self.position == 0:
             success = True
@@ -265,6 +270,43 @@ class Underling():
         self.position = 0
     def has_action(self):
         return self.position == 0
+
+    def do_act(self,act,owner):
+        act.split(' ')
+        ind = 0
+        if act[ind] == 'build':
+            pass
+            #TODO
+        elif act[ind] == 'gain':
+            ind+=1
+            for reward in act[ind].split('+'):
+                if reward[0].isnum():
+                    quantity = reward[0]
+                else:
+                    pass
+                    #TODO nonnumerical quantity
+                if len(reward) == 2:
+                    resource = reward[1]
+                else:
+                    pass
+                    #give choice of reward
+                owner.give_resources(quantity,resource)
+            return True
+        elif act[ind] =='upgrade':
+            pass
+            #TODO
+        elif act[ind] =='score':
+            owner.score += 2
+            return True
+        elif act.startswith('upgrade'):
+            pass
+            #TODO
+        else:
+            pass
+        if ind != len(act):
+            print ind, act
+            assert(0)
+            
     
     
 #Each player has a set of missions and a collection of underlings, they also have resource cubes
@@ -278,6 +320,8 @@ class Player:
         return 'player_number: {} Resources: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,self.resources,
                                                                        '\n'.join((str(m) for m in self.missions)),
                                                                        '\n'.join((str(u) for u in self.underlings)))
+    def give_resources(self,resource,quantity):
+        self.resources[resource] += quantity
     def give_mission(self,a_mission):
         self.missions.append(a_mission)
     def give_underling(self,a_underling):
