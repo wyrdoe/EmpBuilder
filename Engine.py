@@ -1,5 +1,6 @@
 from random import shuffle, randint
 from itertools import combinations
+from operator import add, sub
 
 class Tile:
     def __init__(self,x,y,terrain):
@@ -8,6 +9,7 @@ class Tile:
         self.terrain = terrain if terrain != '.' else None
         self.neighbours = []
         self.owner = None
+        self.building_level = 0
         self.citadel = 'C'
     def add_neighbour(self,neighbour):
         if neighbour.terrain != None and self.terrain != None:
@@ -24,18 +26,27 @@ class Tile:
         else:
             return False
         return True
-    def get_owner(self):
-        return self.owner
+    def demolish(self,player_num):
+        success = False
+        if self.owner == player_num:
+            self.owner = None
+            self.building_level = 0
+            success = True
+        return success
     def upgrade(self,player_num):
+        success = False
         if self.owner == player_num:
             self.building_level += 1
-        else:
-            return False
-        return True
+            success = True
+        return success
+    def get_owner(self):
+        return self.owner
     def coords(self):
         return (self.x,self.y)
     def __repr__(self):
         return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
+    def __str__(self):
+        return '{},{}: {}'.format(self.x,self.y,(self.terrain if self.terrain else '.'))
         
 class Map_grid:
     def __init__(self):
@@ -52,7 +63,7 @@ class Map_grid:
         for col in range(self.map_dimension):
             line = [' '] if col % 2 else []
             for row in range(self.map_dimension):
-                line.append(str(self.map_tiles[row][col]))
+                line.append((self.map_tiles[row][col].__repr__()))
             lines.append(' '.join(line))
         return '\n'.join(lines)
     
@@ -249,30 +260,41 @@ class Underling():
         #TODO
     def activate(self,owner):
         success = False
-        if not self.is_active:
+        if self.position == 0:
             success = True
             #do first action, and then if sucessful, do further actions
             for action in self.activate_text.split(','):
                 #an act may be split up into several options choose one:
-                for act in action.split('|'):
-                    #TODO make owner choose
-                    success = do_act(act.strip(),owner)
+                if '|' in action:
+                    action = selectionMaker('Performed Action',action.split('|'))
+                self.do_act(action.strip(),owner)
+                #for act in action.split('|'):
+                #    acselectionMaker
+                #    success = self.do_act(act.strip(),owner)
             self.position = -1
         return success
-    def do_pass(self,owner):
-        success = False
+    def do_pass(self):
+        reward = []
         if self.position == 0:
-            success = True
+            for reward_str in self.on_pass.split('|'):
+                reward_str = reward_str.strip()
+                crystal = 0
+                if reward_str.endswith('c'):
+                    crystal = 1
+                    reward_str = reward_str[:-1]
+                assert(reward_str.isdigit())
+                reward.append((int(reward_str),crystal))
             #TODO
             self.position = 1
-        return success
+        return reward
     def reset(self):
         self.position = 0
     def has_action(self):
         return self.position == 0
 
     def do_act(self,act,owner):
-        act.split(' ')
+        success = False
+        act = act.split(' ')
         ind = 0
         if act[ind] == 'build':
             pass
@@ -280,48 +302,97 @@ class Underling():
         elif act[ind] == 'gain':
             ind+=1
             for reward in act[ind].split('+'):
-                if reward[0].isnum():
-                    quantity = reward[0]
-                else:
-                    pass
-                    #TODO nonnumerical quantity
-                if len(reward) == 2:
-                    resource = reward[1]
-                else:
-                    pass
-                    #give choice of reward
-                owner.give_resources(quantity,resource)
-            return True
+                owner.give_resources(self.resource_parse(reward,'Income Resource'))
+            success = True
         elif act[ind] =='upgrade':
-            pass
+            ind += 1
+            resource_cost = []
+            for cost in act[ind].split('+'):
+                resource_cost.append(self.resource_parse(cost,'Spent Resource'))
+            
+            if all((owner.check_resources(rc) for rc in resource_cost)):
+                all_settlements = owner.get_settlements_only()
+                if len(all_settlements) == 0:
+                    success = False
+                else:
+                    if len(all_settlements) > 1:
+                        settlement = selectionMaker('Settlement to Upgrade',all_settlements)
+                    else:
+                        settlement = all_settlements[0]
+                    success = settlement.upgrade(owner.player_number)
+                if success:
+                    assert(all((owner.take_resources(rc) for rc in resource_cost)))
             #TODO
         elif act[ind] =='score':
             owner.score += 2
-            return True
-        elif act.startswith('upgrade'):
-            pass
-            #TODO
+            success = True
         else:
             pass
-        if ind != len(act):
-            print ind, act
+        if ind != len(act)-1:
+            print self,ind, act
             assert(0)
+
+    def resource_parse(self,to_parse,choice_message):
+        if to_parse[0].isdigit():
+            quantity = int(to_parse[0])
+        else:
+            pass
+            #TODO nonnumerical quantity
+        if len(to_parse) == 2:
+            resource = to_parse[1]
+        else:
+            resource = selectionMaker(choice_message,list(to_parse[1:]))
+        return resource, quantity
             
     
     
 #Each player has a set of missions and a collection of underlings, they also have resource cubes
 class Player:
-    def __init__(self,player_number):
+    def __init__(self,player_number,shop):
         self.player_number = player_number
+        self.shop = shop
         self.missions = []
         self.underlings = []
         self.resources = {'g':0,'w':0,'s':0}
+        self.tiles = []
     def __repr__(self):
         return 'player_number: {} Resources: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,self.resources,
                                                                        '\n'.join((str(m) for m in self.missions)),
                                                                        '\n'.join((str(u) for u in self.underlings)))
-    def give_resources(self,resource,quantity):
+    def give_tile(self,tile):
+        success = tile.construct(self.player_number)
+        if success:
+            self.tiles.append(tile)
+        return success
+    def move_tile(self,a_tile,b_tile):
+        success = self.give_tile(b_tile)
+        if success:
+            while a_tile.building_level > b_tile.building_level:
+                b_tile.upgrade(self.player_number)
+            assert(self.remove_tile(a_tile))
+        return success
+    def remove_tile(self,tile):
+        success = tile.demolish(self.player_number)
+        if success:
+            self.tiles.remove(tile)
+        return success
+    def get_settlements_only(self):
+        return [tile for tile in self.tiles if tile.building_level == 1]
+    def get_tiles(self):
+        return self.tiles
+    def give_resources(self,resource_quantity):
+        resource,quantity = resource_quantity
         self.resources[resource] += quantity
+    def check_resources(self,resource_quantity):
+        resource,quantity = resource_quantity
+        return self.resources[resource] >= quantity
+    def take_resources(self,resource_quantity):
+        resource,quantity = resource_quantity
+        success = False
+        if self.check_resources(resource_quantity):
+            self.resources[resource] -= quantity
+            success = True
+        return success
     def give_mission(self,a_mission):
         self.missions.append(a_mission)
     def give_underling(self,a_underling):
@@ -336,12 +407,39 @@ class Player:
         for underling in self.underlings:
             underling.reset()
     #a player is passed when all underlings have been used
-    def is_passed():
+    def is_passed(self):
         for underling in self.underlings:
             if underling.has_action():
                 return False
         return True
+    def use_underling(self,underling_pos):
+        self.underlings[underling_pos].activate(self)
+    def do_pass(self):
+        rewards = []
+        for underling in self.underlings:
+            if underling.has_action():
+                new_reward = []
+                for rward in underling.do_pass():
+                    for reward in rewards:
+                        new_reward.append([sum(x) for x in zip(rward, reward)])
+                rewards = new_reward
+        print 'all rewards',rewards
+        choices = set()
+        for reward in rewards:
+            choices.add(self.shop.afforable(reward))
+        print 'all choices', choices
+    #give user options
 
+def selectionMaker(option_type, options):
+    in_val = ''
+    while not in_val.isdigit() or int(in_val) < 0 or int(in_val) >= len(options) :
+        print 'Please type the number of your selection of a {} from the following options:'.format(option_type)
+        for ind, opt in enumerate(options):
+            print '{}): {}'.format(ind,opt)
+        in_val = raw_input()
+    return options[int(in_val)]
+        
+    
 class Shop:
     def __init__(self, underling_factory):
         self.current_round = 0
@@ -374,7 +472,17 @@ class Shop:
         else:
             age = 3
         return age
-
+    #return the currently affordable underlings
+    def affordable(reward):
+        afforable_list = []
+        for shop_tier in range(NUM_SHOP_TIERS):
+            discount = (shop_tier,0)
+            for und in shop_underlings[shop_tier]:
+                if all((val > 0 for val in map(sub,map(add,discount,reward),und.cost))):
+                    afforable_list.append(und)
+        return afforable_list
+                
+        
     def buy_underling(self,a_underling):
         for shop_tier in range(NUM_SHOP_TIERS):
             for und_index in range(NUM_UNDERLINGS_SHOP_TIER):
@@ -397,7 +505,7 @@ class GameObject:
         self.shop = Shop(self.underling_factory)
         self.players = []
         for player_num in range(num_players):
-            self.players.append(Player(player_num))
+            self.players.append(Player(player_num,self.shop))
         assert(NUM_MISSIONS_EACH > NUM_MISSION_TYPES)
         #Give each player one mission of each type
         for mission_type in range(NUM_MISSION_TYPES):
@@ -411,7 +519,6 @@ class GameObject:
         for underling in range(NUM_UNDERLINGS):
             for a_player in self.players:
                 a_player.give_underling(self.underling_factory.get_underling(0,underling))
-        self.new_round()
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.underling_factory),str(self.shop), '\n'.join((str(p) for p in self.players))])
 
@@ -419,7 +526,8 @@ class GameObject:
         self.current_round += 1
         self.shop.new_round(self.current_round)
         for player in self.players:
-            player.new_round() 
+            player.new_round()
+        
 
 NUM_UNDERLINGS_SHOP_TIER = 5
 NUM_SHOP_TIERS = 2
@@ -430,23 +538,50 @@ NUM_MISSION_TYPES = 3
 if __name__ == "__main__":
     go = GameObject(2)
     
-    go.map_grid.build_at(2,6,0)
-    go.map_grid.build_at(1,6,0)
-    go.map_grid.build_at(2,7,0)
-    go.map_grid.build_at(3,7,0)
-    go.map_grid.build_at(4,7,0)
-    go.map_grid.build_at(5,6,0)
-    go.map_grid.build_at(4,5,0)
-    go.map_grid.build_at(3,5,0)
-    go.map_grid.upgrade_at(3,7,0)
-    go.map_grid.upgrade_at(4,5,0)
+    #go.map_grid.build_at(2,6,0)
+    #go.map_grid.build_at(1,6,0)
+    #go.map_grid.build_at(2,7,0)
+    #go.map_grid.build_at(3,7,0)
+    #go.map_grid.build_at(4,7,0)
+    #go.map_grid.build_at(5,6,0)
+    #go.map_grid.build_at(4,5,0)
+    #go.map_grid.build_at(3,5,0)
+    #go.map_grid.upgrade_at(3,7,0)
+    #go.map_grid.upgrade_at(4,5,0)
 
-    go.shop.new_round(2)
-    go.shop.new_round(3)
-    go.shop.new_round(4)
+    go.players[0].give_resources(('s',9))
+    go.players[0].give_resources(('g',9))
+    go.players[0].give_tile(go.map_grid.map_tiles[2][6])
+    go.players[0].give_tile(go.map_grid.map_tiles[1][6])
+    go.players[0].give_tile(go.map_grid.map_tiles[2][7])
+    #go.players[0].give_tile(go.map_grid.map_tiles[3][7])
+    #go.players[0].give_tile(go.map_grid.map_tiles[4][7])
+    #go.players[0].give_tile(go.map_grid.map_tiles[5][6])
+    #go.players[0].give_tile(go.map_grid.map_tiles[4][5])
+    #go.players[0].give_tile(go.map_grid.map_tiles[3][5])    
+
+    for round_number in range(1,10):
+        go.new_round()
+        print go.map_grid
+        underling_name = ''
+        while not go.players[0].is_passed():
+            underling_name = selectionMaker('Underling to Activate',['Pass']+[und.name for und in go.players[0].underlings if und.has_action()])
+            success = False
+            if underling_name == 'Pass':
+                success = go.players[0].do_pass()
+            else:
+                for ind, a_underling in enumerate(go.players[0].underlings):
+                    if a_underling.name == underling_name:
+                        success = go.players[0].use_underling(ind)
+            if success:
+                print go.players[0]
+        
+        
+        #mg = go.map_grid.find_max_number_groups(0,3)
+        #if mg:
+        #    for i,vals in enumerate(mg):
+        #        print 'group {} found'.format(i),[go.map_grid.val_to_coord(val) for val in vals]
     
-    print go.map_grid
-    for i,vals in enumerate(go.map_grid.find_max_number_groups(0,3)):
-        print 'group {} found'.format(i),[go.map_grid.val_to_coord(val) for val in vals]
+            
 
     
