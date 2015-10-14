@@ -217,11 +217,9 @@ class Map_grid:
                 extra_tiles.add(extra)
         for extra in extra_tiles.copy():
             source_tile,dest_tile = extra
-            #print source_tile, dest_tile, terrain_agnostic
             dest_tile.is_buildable()
             source_tile.same_terrain(dest_tile)
             if not condition(source_tile,dest_tile):
-                #print 'remove'
                 extra_tiles.remove(extra)
         return [dest_tile for source_tile, dest_tile in extra_tiles]
     def get_buildable_global(self,river_allowed=False):
@@ -424,8 +422,6 @@ class Underling():
                     tile,cost = selectionMaker('Settlement to build',buildable_tiles)
                 else:
                     tile,cost = buildable_tiles[0]
-                print type(buildable_tiles[0]),type(buildable_tiles[0][0]),type(tile),type(cost)
-                print 'building',[tile], 'at cost',[cost]
                 success = owner.give_tile(tile)
             if success:
                 assert(all((owner.take_resources(rc) for rc in cost)))
