@@ -290,7 +290,7 @@ class Underling_factory():
             for underling_num, line in enumerate(underling_file.read().split('\n')):
                 a_underling = Underling(line)
                 self.discard(a_underling)
-            for i in range(NUM_UNDERLING_TYPES):
+            for i in range(1,NUM_UNDERLING_TYPES):
                 shuffle(self.all_underlings[i])
     def get_underling(self, underling_type, underling_index=0):
         assert(underling_type < NUM_UNDERLING_TYPES)
@@ -748,7 +748,7 @@ if __name__ == "__main__":
         print go.map_grid
         underling_name = ''
         while not go.players[0].is_passed():
-            underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Player']+[und.name for und in go.players[0].underlings if und.has_action()]+['Exit'])
+            underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.players[0].underlings if und.has_action()]+['Exit'])
             success = False
             if underling_name == 'Exit':
                 sys.exit(0)
@@ -758,6 +758,8 @@ if __name__ == "__main__":
                 print go.map_grid
             elif underling_name == 'Display Player':
                 print go.players[0]
+            elif underling_name == 'Display Shop':
+                print go.shop
             else:
                 for ind, a_underling in enumerate(go.players[0].underlings):
                     if a_underling.name == underling_name:
