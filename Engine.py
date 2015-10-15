@@ -67,6 +67,10 @@ class Tile:
         return self.terrain.lower() == 'g'
     def is_city(self):
         return self.building_level == 1
+    def is_citadel(self):
+        return self.terrain.lower() == 'c'
+    def is_outer_citadel(self):
+        return self.terrain == 'C'
     def get_owner(self):
         return self.owner
     def coords(self):
@@ -195,9 +199,9 @@ class Map_grid:
                         self.recurse_connections(tile,None,lambda tile, owner: tile.is_river(),group)
                         found_groups.append(group)
         return found_groups
-    def get_buildable(self,owned_tiles,dist=None,terrain_agnostic=True, river_allowed=False,river_dist=0): #get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist)
+    def get_buildable(self,owned_tiles,dist=None,terrain_agnostic=True, river_allowed=False,river_dist=0,citadel_only=False): #get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist)
         if dist == None:
-            return self.get_buildable_global(river_allowed)
+            return self.get_buildable_global(river_allowed,citadel_only)
         extra_tiles = set()
         river_buidable = set()
         if river_allowed:
@@ -233,12 +237,25 @@ class Map_grid:
             if condition(source_tile,dest_tile):
                 retval.add(dest_tile)
         return list(retval)
-    def get_buildable_global(self,river_allowed=False):
-        if river_allowed:
+    def get_buildable_global(self,river_allowed=False,citadel_only=False):
+        if river_allowed and citadel_only:
+            condition = lambda tile: tile.is_river_buildable() and any((True for t in tile.get_neighbours() if t.is_citadel()))
+        elif river_allowed:
             condition = lambda tile: tile.is_river_buildable()
+        elif citadel_only:
+            condition = lambda tile: tile.is_buildable() and any((True for t in tile.get_neighbours() if t.is_citadel()))
         else:
             condition = lambda tile: tile.is_buildable()
-        return [tile for tile_row in self.map_tiles for tile in tile_row if condition(tile)]        
+        return [tile for tile_row in self.map_tiles for tile in tile_row if condition(tile)]
+
+    def valid_initial_placement(self,player_num):
+        ret_val = []
+        for tile in self.get_buildable_global(river_allowed=False,citadel_only=True):
+            for nt in tile.get_neighbours():
+                if nt.is_outer_citadel():
+                    if not any((citadel_neighbour.owner == player_num for citadel_neighbour in nt.get_neighbours())):
+                        ret_val.append(tile)
+        return ret_val
         
 class Mission():
     def __init__(self, line):
@@ -398,7 +415,7 @@ class Underling():
             dist = 1
             river_allowed = False
             river_dist = 0
-            citadel = False
+            citadel_only = False
             terrain_agnostic = True
             if len(act) > ind:
                 if act[ind] == 'river':
@@ -409,8 +426,8 @@ class Underling():
                     river_dist = int(act[ind+1])
                     ind += 2
                 elif act[ind] == 'citadel':
-                    citadel = True
-                    dist = 0
+                    citadel_only = True
+                    dist = None
                     ind += 1
                 elif act[ind] == 'anywhere':
                     ind += 1
@@ -420,7 +437,7 @@ class Underling():
                     
             #Add basic cost tiles:
             if all((owner.check_resources(rc) for rc in resource_cost)):
-                buildable_tiles = [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist)]
+                buildable_tiles = [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist,citadel_only)]
             if len(act) > ind:
                 if act[ind] == 'jump':
                     dist +=1
@@ -433,7 +450,7 @@ class Underling():
                 ind += 1
                 resource_cost = self.resource_combine(resources)
             if all((owner.check_resources(rc) for rc in resource_cost)):
-                buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist)]
+                buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist,citadel_only)]
             #Add further cost tiles:
             
             if len(buildable_tiles) == 0:
@@ -472,7 +489,7 @@ class Underling():
                     resources += self.resource_parse(owner,reward,'Income Resource')
                 for res_quant in self.resource_combine(resources,max_val_allowed):
                     owner.give_resources(res_quant)
-                                     
+
         elif act[ind] =='upgrade':
             #TODO move
             ind += 1
@@ -503,7 +520,7 @@ class Underling():
             if len(act) > ind:
                 success = act[ind] == 'shield' and tile != None and tile.is_shield()
             if success:
-                owner.score += reward
+                owner.give_score(reward)
                                      
         elif act[ind] == 'move':
             ind += 1
@@ -520,12 +537,29 @@ class Underling():
                     all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
                     ind += 1
                 elif act[ind] == 'anywhere':
-                    all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                    all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False)
                     ind += 1
                 
                 dest_tile = selectionMaker('Movement Destination',all_tiles)
                 success = owner.move_tile(source_tile,dest_tile)
-
+        elif act[ind] == 'exchange':
+            ind += 1
+            resources = []
+            for cost in act[ind].split('+'):
+                resources += self.resource_parse(owner,cost,'Spent Resource',optional=True)
+            resource_cost = self.resource_combine(resources)
+            total_cost = sum((cost for resource, cost in resource_cost))
+            ind += 1
+            print 'exchange',resource_cost, total_cost,[owner.check_resources(rc) for rc in resource_cost]
+            if all((owner.check_resources(rc) for rc in resource_cost)) and total_cost > 0:
+                owner.give_score(total_cost)
+                success = True
+            if success:
+                assert(all((owner.take_resources(rc) for rc in resource_cost)))
+        #TODO option to use less than all
+        elif act[ind] == 'trade':
+        #TODO
+            pass
         else:
             pass
         if ind != len(act):
@@ -534,13 +568,13 @@ class Underling():
         return success,tile
 
     #return a list of required resources
-    def resource_parse(self,owner,to_parse,choice_message):
+    def resource_parse(self,owner,to_parse,choice_message,optional=False):
         if isInt(to_parse[0]):
             quantity = int(to_parse[0])
         else:
             if to_parse[0] == 'f': #number of forests
                 condition = lambda tile: tile.is_forest()
-            elif to_parse[0] == 'm':
+            elif to_parse[0] == 'm':#number of mountains
                 condition = lambda tile: tile.is_mountain()
             elif to_parse[0] == 'S': #number of shields
                 condition = lambda tile: tile.is_shield()
@@ -554,7 +588,11 @@ class Underling():
         else:
             ret_val = []
             for i in range(quantity):
-                ret_val.append(selectionMaker(choice_message,list(to_parse[1:])))
+                nothing = 'Nothing'
+                selection = selectionMaker(choice_message,list(to_parse[1:])+([nothing] if optional else []))
+                if selection == nothing:
+                    break
+                ret_val.append(selection)
         return ret_val
     def resource_combine(self,resources,max_val_allowed=None):
         resources.sort()
@@ -582,9 +620,10 @@ class Player:
         self.underlings = []
         self.resources = {'g':0,'w':0,'s':0}
         self.tiles = []
+        self.score = 0
     def __repr__(self):
-        return 'player_number: {} Resources: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,self.resources,
-                                                                       '\n'.join((str(m) for m in self.missions)),
+        return 'player_number: {} Resources: {} Score: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,self.resources,
+                                                                       self.score, '\n'.join((str(m) for m in self.missions)),
                                                                        '\n'.join((str(u) for u in self.underlings)))
     def give_tile(self,tile):
         success = tile.construct(self.player_number)
@@ -622,6 +661,8 @@ class Player:
             self.resources[resource] -= quantity
             success = True
         return success
+    def give_score(self,quantity):
+        self.score += quantity
     def give_mission(self,a_mission):
         self.missions.append(a_mission)
     def give_underling(self,a_underling):
@@ -643,11 +684,11 @@ class Player:
         return True
     def use_underling(self,underling_pos):
         return self.underlings[underling_pos].activate(self)
-    def get_buildable(self,dist,terrain_agnostic=True,river_allowed=False,river_dist=0):
-        return self.map.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist)
-    def get_buildable_sans_tile(self,tile,dist,terrain_agnostic=True,river_allowed=False,river_dist=0):
+    def get_buildable(self,dist,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False):
+        return self.map.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist,citadel_only)
+    def get_buildable_sans_tile(self,tile,dist,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False):
     #used to remove one tile from consideration
-        return self.map.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,river_dist)                                
+        return self.map.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,river_dist,citadel_only)                                
     def do_pass(self):
         rewards = [(0,0)]
         for underling in self.underlings:
@@ -746,6 +787,9 @@ class GameObject:
         self.players = []
         for player_num in range(num_players):
             self.players.append(Player(player_num,self.shop,self.map_grid))
+            self.players[player_num].give_resources(('w',1))
+            self.players[player_num].give_resources(('s',1))
+            self.players[player_num].give_resources(('g',1))
         assert(NUM_MISSIONS_EACH > NUM_MISSION_TYPES)
         #Give each player one mission of each type
         for mission_type in range(NUM_MISSION_TYPES):
@@ -759,7 +803,8 @@ class GameObject:
         for underling in range(NUM_UNDERLINGS):
             for a_player in self.players:
                 a_player.give_underling(self.underling_factory.get_underling(0,underling).copy())
-        self.start_player = randint(0,num_players)
+        self.start_player = randint(0,num_players-1)
+        self.current_player = self.start_player
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.underling_factory),str(self.shop), '\n'.join((str(p) for p in self.players))])
 
@@ -773,14 +818,28 @@ class GameObject:
             player.new_round()
         self.start_player = (self.start_player + 1)%len(self.players)
         self.current_player = self.start_player
-    def next_player(self):
-        ret_val = self.current_player
-        self.current_player = (self.current_player + 1)%len(self.players)
+    def next_player(self, clockwise=True):
+        delta = 1 if clockwise else -1 + len(self.players)
+        self.current_player = (self.current_player + delta)%len(self.players)
         while self.players[self.current_player].is_passed():
-            self.current_player = (self.current_player + 1)%len(self.players)
-        return ret_val
+            self.current_player = (self.current_player + delta)%len(self.players)
+        return self.current_player
     def get_current_player(self):
         return self.players[self.current_player]
+    def place_initial_settlements(self):
+        for i in range(NUM_INITIAL_PLACEMENTS):
+            if i % 2 == 0:
+                clockwise = True
+            else:
+                clockwise = False
+            for j in range(len(self.players)):
+                all_tiles = self.map_grid.valid_initial_placement(self.current_player)
+                selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
+                self.get_current_player().give_tile(selection)
+                self.next_player(clockwise)
+            self.next_player(not clockwise)
+            
+        
 
 NUM_UNDERLINGS_SHOP_TIER = 5
 NUM_SHOP_TIERS = 2
@@ -788,8 +847,10 @@ NUM_UNDERLINGS = 5
 NUM_UNDERLING_TYPES = 4
 NUM_MISSIONS_EACH = 7
 NUM_MISSION_TYPES = 3
+NUM_INITIAL_PLACEMENTS = 3
 if __name__ == "__main__":
-    go = GameObject(2)
+    num_players = 3
+    go = GameObject(num_players)
     
     #go.map_grid.build_at(2,6,0)
     #go.map_grid.build_at(1,6,0)
@@ -802,12 +863,12 @@ if __name__ == "__main__":
     #go.map_grid.upgrade_at(3,7,0)
     #go.map_grid.upgrade_at(4,5,0)
 
-    go.players[0].give_resources(('s',9))
-    go.players[0].give_resources(('g',9))
-    go.players[0].give_resources(('w',6))
-    go.players[0].give_tile(go.map_grid.map_tiles[2][6])
-    go.players[0].give_tile(go.map_grid.map_tiles[1][6])
-    go.players[0].give_tile(go.map_grid.map_tiles[2][7])
+    #go.players[0].give_resources(('s',9))
+    #go.players[0].give_resources(('g',9))
+    #go.players[0].give_resources(('w',6))
+    #go.players[0].give_tile(go.map_grid.map_tiles[2][6])
+    #go.players[0].give_tile(go.map_grid.map_tiles[1][6])
+    #go.players[0].give_tile(go.map_grid.map_tiles[2][7])
     #go.players[0].give_tile(go.map_grid.map_tiles[3][7])
     #go.players[0].give_tile(go.map_grid.map_tiles[4][7])
     #go.players[0].give_tile(go.map_grid.map_tiles[5][6])
@@ -817,10 +878,13 @@ if __name__ == "__main__":
     #print go.map_grid.get_rivers()
 
     for round_number in range(1,10):
-        go.new_round()
+        
         print go.map_grid
         underling_name = ''
-        current_player = go.next_player()
+        current_player = go.get_current_player().player_number
+        go.place_initial_settlements()
+        print go.map_grid
+        go.new_round()
         while not go.all_players_passed():
             print 'Player {} Turn'.format(current_player)
             underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.get_current_player().underlings if und.has_action()]+['Exit'])
@@ -843,6 +907,8 @@ if __name__ == "__main__":
                         break
                 if success:
                     current_player = go.next_player()
+                else:
+                    print 'action {}, failed'.format(underling_name)
             #if success:
                 #print go.players[0]
         
