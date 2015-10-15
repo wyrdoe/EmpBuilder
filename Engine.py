@@ -197,7 +197,7 @@ class Map_grid:
         return found_groups
     def get_buildable(self,owned_tiles,dist=None,terrain_agnostic=True, river_allowed=False,river_dist=0): #get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist)
         if dist == None:
-            return get_buildable_global(self,river_allowed)
+            return self.get_buildable_global(river_allowed)
         extra_tiles = set()
         river_buidable = set()
         if river_allowed:
@@ -225,13 +225,14 @@ class Map_grid:
                     new_extra.append((source_tile,a_tile))
             for extra in new_extra:
                 extra_tiles.add(extra)
-        for extra in extra_tiles.copy():
+        retval = set()
+        for extra in extra_tiles:
             source_tile,dest_tile = extra
             dest_tile.is_buildable()
             source_tile.same_terrain(dest_tile)
-            if not condition(source_tile,dest_tile):
-                extra_tiles.remove(extra)
-        return [dest_tile for source_tile, dest_tile in extra_tiles]
+            if condition(source_tile,dest_tile):
+                retval.add(dest_tile)
+        return list(retval)
     def get_buildable_global(self,river_allowed=False):
         if river_allowed:
             condition = lambda tile: tile.is_river_buildable()
@@ -392,14 +393,18 @@ class Underling():
             ind += 1
             buildable_tiles = []
             dist = 1
-            same_river = False
+            river_allowed = False
             river_dist = 0
             citadel = False
             terrain_agnostic = True
             if len(act) > ind:
                 if act[ind] == 'river':
-                    same_river = True
+                    river_allowed = True
+                    river_dist = None
                     ind += 1
+                elif act[ind] == 'water':
+                    river_dist = int(act[ind+1])
+                    ind += 2
                 elif act[ind] == 'citadel':
                     citadel = True
                     dist = 0
@@ -409,9 +414,10 @@ class Underling():
                     dist = None
                 elif act[ind] == 'cross':
                     terrain_agnostic = False
+                    
             #Add basic cost tiles:
             if all((owner.check_resources(rc) for rc in resource_cost)):
-                buildable_tiles = [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,same_river,river_dist)]
+                buildable_tiles = [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist)]
             if len(act) > ind:
                 if act[ind] == 'jump':
                     dist +=1
@@ -424,7 +430,7 @@ class Underling():
                 ind += 1
                 resource_cost = self.resource_combine(resources)
             if all((owner.check_resources(rc) for rc in resource_cost)):
-                buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,same_river,river_dist)]
+                buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist)]
             #Add further cost tiles:
             
             if len(buildable_tiles) == 0:
@@ -437,8 +443,7 @@ class Underling():
                 success = owner.give_tile(tile)
             if success:
                 assert(all((owner.take_resources(rc) for rc in cost)))
-            
-            #TODO all
+                                     
         elif act[ind] == 'gain':
             #TODO non-int income
             rewards = act[ind+1]
@@ -464,6 +469,7 @@ class Underling():
                     resources += self.resource_parse(owner,reward,'Income Resource')
                 for res_quant in self.resource_combine(resources,max_val_allowed):
                     owner.give_resources(res_quant)
+                                     
         elif act[ind] =='upgrade':
             #TODO move
             ind += 1
@@ -484,6 +490,7 @@ class Underling():
                     success = tile.upgrade(owner.player_number)
                 if success:
                     assert(all((owner.take_resources(rc) for rc in resource_cost)))
+                                     
         elif act[ind] =='score':
             assert(isInt(act[ind+1]))
             reward = int(act[ind+1])
@@ -494,6 +501,24 @@ class Underling():
                 success = act[ind] == 'shield' and tile != None and tile.is_shield()
             if success:
                 owner.score += reward
+                                     
+        elif act[ind] == 'move':
+            ind += 1
+            all_tiles = []
+            source_tile = selectionMaker('Settlement to Move', [t for t in owner.get_tiles() if t != tile])
+            if act[ind] == 'here':
+                assert(tile != None)
+                all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
+                ind += 1
+            elif act[ind] == 'owned':
+                all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                ind += 1
+            elif act[ind] == 'anywhere':
+                all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                ind += 1
+            dest_tile = selectionMaker('Movement Destination',all_tiles)
+            success = owner.move_tile(source_tile,dest_tile)
+
         else:
             pass
         if ind != len(act):
@@ -559,12 +584,12 @@ class Player:
         if success:
             self.tiles.append(tile)
         return success
-    def move_tile(self,a_tile,b_tile):
-        success = self.give_tile(b_tile)
+    def move_tile(self,source_tile,dest_tile):
+        success = self.give_tile(dest_tile)
         if success:
-            while a_tile.building_level > b_tile.building_level:
-                b_tile.upgrade(self.player_number)
-            assert(self.remove_tile(a_tile))
+            while source_tile.building_level > dest_tile.building_level:
+                dest_tile.upgrade(self.player_number)
+            assert(self.remove_tile(source_tile))
         return success
     def remove_tile(self,tile):
         success = tile.demolish(self.player_number)
@@ -611,10 +636,11 @@ class Player:
         return True
     def use_underling(self,underling_pos):
         return self.underlings[underling_pos].activate(self)
-    def get_buildable(self,dist,terrain_agnostic=True,same_river=False,river_dist=0):
-        river_allowed = same_river
-        #todo add in same_river
+    def get_buildable(self,dist,terrain_agnostic=True,river_allowed=False,river_dist=0):
         return self.map.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist)
+    def get_buildable_sans_tile(self,tile,dist,terrain_agnostic=True,river_allowed=False,river_dist=0):
+    #used to remove one tile from consideration
+        return self.map.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,river_dist)                                
     def do_pass(self):
         rewards = [(0,0)]
         for underling in self.underlings:
