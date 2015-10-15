@@ -327,6 +327,7 @@ class Underling_factory():
 
 class Underling():
     def __init__(self,line):
+        self.line = line
         line_split = line.strip().split(';')
         self.underling_type = line_split[0].strip().lower()
         self.cost     = self.transient_resource_parse(line_split[1])
@@ -338,6 +339,8 @@ class Underling():
         #for act in self.activate_text.split(','):
         #    self.activations.append(self.activation_parse(act.strip()))
         self.reset()
+    def copy(self):
+        return Underling(self.line)
     def __repr__(self):
         return '{:6} {:4} {:4} {:4} {:20} {}'.format(self.underling_type,self.cost,self.on_buy, self.pass_reward, self.name,self.activate_text)
     def activation_parse(self,activate_text):
@@ -505,19 +508,23 @@ class Underling():
         elif act[ind] == 'move':
             ind += 1
             all_tiles = []
-            source_tile = selectionMaker('Settlement to Move', [t for t in owner.get_tiles() if t != tile])
-            if act[ind] == 'here':
-                assert(tile != None)
-                all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
-                ind += 1
-            elif act[ind] == 'owned':
-                all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
-                ind += 1
-            elif act[ind] == 'anywhere':
-                all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0)
-                ind += 1
-            dest_tile = selectionMaker('Movement Destination',all_tiles)
-            success = owner.move_tile(source_tile,dest_tile)
+            source_tile = selectionMaker('Settlement to Move', ['None'] + [t for t in owner.get_tiles() if t != tile])
+            if source_tile == 'None':
+                success = False
+            else:
+                if act[ind] == 'here':
+                    assert(tile != None)
+                    all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
+                    ind += 1
+                elif act[ind] == 'owned':
+                    all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                    ind += 1
+                elif act[ind] == 'anywhere':
+                    all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                    ind += 1
+                
+                dest_tile = selectionMaker('Movement Destination',all_tiles)
+                success = owner.move_tile(source_tile,dest_tile)
 
         else:
             pass
@@ -748,19 +755,32 @@ class GameObject:
         for mission in range(NUM_MISSIONS_EACH-NUM_MISSION_TYPES):
             for a_player in self.players:
                 a_player.give_mission(self.mission_factory.get_mission())
-        #Give players starting Underlings
+        #Give players a copy of the starting Underlings
         for underling in range(NUM_UNDERLINGS):
             for a_player in self.players:
-                a_player.give_underling(self.underling_factory.get_underling(0,underling))
+                a_player.give_underling(self.underling_factory.get_underling(0,underling).copy())
+        self.start_player = randint(0,num_players)
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.underling_factory),str(self.shop), '\n'.join((str(p) for p in self.players))])
+
+    def all_players_passed(self):
+        return all((player.is_passed() for player in self.players))
 
     def new_round(self):
         self.current_round += 1
         self.shop.new_round(self.current_round)
         for player in self.players:
             player.new_round()
-        
+        self.start_player = (self.start_player + 1)%len(self.players)
+        self.current_player = self.start_player
+    def next_player(self):
+        ret_val = self.current_player
+        self.current_player = (self.current_player + 1)%len(self.players)
+        while self.players[self.current_player].is_passed():
+            self.current_player = (self.current_player + 1)%len(self.players)
+        return ret_val
+    def get_current_player(self):
+        return self.players[self.current_player]
 
 NUM_UNDERLINGS_SHOP_TIER = 5
 NUM_SHOP_TIERS = 2
@@ -800,23 +820,29 @@ if __name__ == "__main__":
         go.new_round()
         print go.map_grid
         underling_name = ''
-        while not go.players[0].is_passed():
-            underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.players[0].underlings if und.has_action()]+['Exit'])
+        current_player = go.next_player()
+        while not go.all_players_passed():
+            print 'Player {} Turn'.format(current_player)
+            underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.get_current_player().underlings if und.has_action()]+['Exit'])
             success = False
             if underling_name == 'Exit':
                 sys.exit(0)
             elif underling_name == 'Pass':
-                success = go.players[0].do_pass()
+                success = go.get_current_player().do_pass()
+                current_player = go.next_player()
             elif underling_name == 'Display Map':
                 print go.map_grid
             elif underling_name == 'Display Player':
-                print go.players[0]
+                print go.players[current_player]
             elif underling_name == 'Display Shop':
                 print go.shop
             else:
-                for ind, a_underling in enumerate(go.players[0].underlings):
+                for ind, a_underling in enumerate(go.get_current_player().underlings):
                     if a_underling.name == underling_name:
-                        success = go.players[0].use_underling(ind)
+                        success = go.get_current_player().use_underling(ind)
+                        break
+                if success:
+                    current_player = go.next_player()
             #if success:
                 #print go.players[0]
         
