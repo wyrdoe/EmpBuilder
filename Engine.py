@@ -57,6 +57,16 @@ class Tile:
         return self.terrain == 'G'
     def is_river(self):
         return self.terrain == 'o'
+    def is_forest(self):
+        return self.terrain == 'f'
+    def is_mountain(self):
+        return self.terrain == 'm'
+    def is_desert(self):
+        return self.terrain == 'd'
+    def is_grassland(self):
+        return self.terrain.lower() == 'g'
+    def is_city(self):
+        return self.building_level == 1
     def get_owner(self):
         return self.owner
     def coords(self):
@@ -337,13 +347,15 @@ class Underling():
         if self.position == 0:
             success = True
             tile = None
-            for action in self.activate_text.split(','):
+            for ind, action in enumerate(self.activate_text.split(',')):
                 #do one action, and then if sucessful, do further actions
                 if success:
                     #an act may be split up into several options choose one:
                     if '|' in action:
                         action = selectionMaker('action to perform',action.split('|'))
-                    success,tile = self.do_act(action.strip(),owner,tile)
+                    new_success,tile = self.do_act(action.strip(),owner,tile)
+                    if ind == 0:
+                        success = new_success
             if success:
                 self.position = -1
         return success
@@ -375,7 +387,7 @@ class Underling():
             ind += 1
             resources = []
             for cost in act[ind].split('+'):
-                resources += self.resource_parse(cost,'Spent Resource')
+                resources += self.resource_parse(owner,cost,'Spent Resource')
             resource_cost = self.resource_combine(resources)
             ind += 1
             buildable_tiles = []
@@ -408,7 +420,7 @@ class Underling():
                     terrain_agnostic = True
                     ind += 1                        
                 for cost in act[ind].split('+'):
-                    resources += self.resource_parse(cost,'Additional Resource')
+                    resources += self.resource_parse(owner,cost,'Additional Resource')
                 ind += 1
                 resource_cost = self.resource_combine(resources)
             if all((owner.check_resources(rc) for rc in resource_cost)):
@@ -432,28 +444,32 @@ class Underling():
             rewards = act[ind+1]
             ind += 2
             success = True
+            max_val_allowed = None
             if len(act) > ind:
-                success = False
-                if tile == None:
-                    #We haven't specified a tile this means any tile we own
-                    tiles = owner.get_tiles()
-                else:
-                    tiles = [tile]
                 if act[ind] == 'shield':
+                    success = False
+                    if tile == None:
+                        #We haven't specified a tile this means any tile we own
+                        tiles = owner.get_tiles()
+                    else:
+                        tiles = [tile]
                     success = any((tt.is_shield() for tt in tiles))
+                if act[ind] == 'max':
+                    ind += 1
+                    max_val_allowed = int(act[ind])
                 ind += 1
             if success:
                 resources = []
                 for reward in rewards.split('+'):
-                    resources += self.resource_parse(reward,'Income Resource')
-                for res_quant in self.resource_combine(resources):
+                    resources += self.resource_parse(owner,reward,'Income Resource')
+                for res_quant in self.resource_combine(resources,max_val_allowed):
                     owner.give_resources(res_quant)
         elif act[ind] =='upgrade':
             #TODO move
             ind += 1
             resources = []
             for cost in act[ind].split('+'):
-                resources += self.resource_parse(cost,'Spent Resource')
+                resources += self.resource_parse(owner,cost,'Spent Resource')
             resource_cost = self.resource_combine(resources)
             ind += 1
             if all((owner.check_resources(rc) for rc in resource_cost)):
@@ -486,12 +502,21 @@ class Underling():
         return success,tile
 
     #return a list of required resources
-    def resource_parse(self,to_parse,choice_message):
+    def resource_parse(self,owner,to_parse,choice_message):
         if isInt(to_parse[0]):
             quantity = int(to_parse[0])
         else:
-            pass
-            #TODO nonnumerical quantity
+            if to_parse[0] == 'f': #number of forests
+                condition = lambda tile: tile.is_forest()
+            elif to_parse[0] == 'm':
+                condition = lambda tile: tile.is_mountain()
+            elif to_parse[0] == 'S': #number of shields
+                condition = lambda tile: tile.is_shield()
+            elif to_parse[0] == 'C': #number of citadels
+                condition = lambda tile: any((neighbour_tile.is_citadel() for neighbour_tile in tile.get_neighbours()))
+            elif to_parse[0] == 'x': #number of cities
+                condition = lambda tile: tile.is_city()
+            quantity = owner.count_tiles(condition)
         if len(to_parse) == 2:
             ret_val = [to_parse[1]]*quantity
         else:
@@ -499,7 +524,7 @@ class Underling():
             for i in range(quantity):
                 ret_val.append(selectionMaker(choice_message,list(to_parse[1:])))
         return ret_val
-    def resource_combine(self,resources):
+    def resource_combine(self,resources,max_val_allowed=None):
         resources.sort()
         ret_val = []
         if len(resources) > 0:
@@ -507,7 +532,7 @@ class Underling():
             prev = resources[0]
             for res in resources[1:]:
                 if res == prev:
-                    quant += 1
+                    quant = quant + 1 if max_val_allowed == None else min(quant + 1,max_val_allowed)
                 else:
                     ret_val.append((prev,quant))
                     quant = 1
@@ -550,6 +575,8 @@ class Player:
         return [tile for tile in self.tiles if tile.building_level == 1]
     def get_tiles(self):
         return self.tiles
+    def count_tiles(self, condition):
+        return sum([1 for tile in self.tiles if condition(tile)])
     def give_resources(self,resource_quantity):
         resource,quantity = resource_quantity
         self.resources[resource] += quantity
@@ -610,7 +637,7 @@ def selectionMaker(option_type, options):
     while not isInt(in_val) or int(in_val) < 0 or int(in_val) >= len(options) :
         print 'Please type the number of your selection of a {} from the following options:'.format(option_type)
         for ind, opt in enumerate(options):
-            print '{}): {}'.format(ind,opt)
+            print '{}): {}'.format(ind,str(opt).strip())
         in_val = raw_input()
     return options[int(in_val)]
         
