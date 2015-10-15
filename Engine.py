@@ -333,7 +333,14 @@ class Underling_factory():
             else:
                 return None
         if underlind_index == None:
-            self.underling_index += 1      
+            self.underling_index += 1
+    def peek_underling(self,underling_type,number):
+        ind = self.underling_index[underling_type]-1
+        if ind < len(self.all_underlings[underling_type]):
+            number = min(number, len(self.all_underlings[underling_type])-ind)
+            return self.all_underlings[underling_type][ind:ind+number]
+        else:
+            return None
     def __repr__(self):
         a_str = self.fields
         return a_str+'\n'.join((str(u) for und in self.all_underlings for u in und))
@@ -360,9 +367,6 @@ class Underling():
         return Underling(self.line)
     def __repr__(self):
         return '{:6} {:4} {:4} {:4} {:20} {}'.format(self.underling_type,self.cost,self.on_buy, self.pass_reward, self.name,self.activate_text)
-    def activation_parse(self,activate_text):
-        pass
-        #TODO
     def activate(self,owner):
         success = False
         if self.position == 0:
@@ -465,7 +469,6 @@ class Underling():
                 assert(all((owner.take_resources(rc) for rc in cost)))
                                      
         elif act[ind] == 'gain':
-            #TODO non-int income
             rewards = act[ind+1]
             ind += 2
             success = True
@@ -491,7 +494,6 @@ class Underling():
                     owner.give_resources(res_quant)
 
         elif act[ind] =='upgrade':
-            #TODO move
             ind += 1
             resources = []
             for cost in act[ind].split('+'):
@@ -550,16 +552,28 @@ class Underling():
             resource_cost = self.resource_combine(resources)
             total_cost = sum((cost for resource, cost in resource_cost))
             ind += 1
-            print 'exchange',resource_cost, total_cost,[owner.check_resources(rc) for rc in resource_cost]
             if all((owner.check_resources(rc) for rc in resource_cost)) and total_cost > 0:
                 owner.give_score(total_cost)
                 success = True
             if success:
                 assert(all((owner.take_resources(rc) for rc in resource_cost)))
-        #TODO option to use less than all
         elif act[ind] == 'trade':
-        #TODO
-            pass
+            #TODO
+            ind += 1
+            resources = []
+            for cost in act[ind].split('+'):
+                resources += self.resource_parse(owner,cost,'Traded Resource',optional=True)
+            resource_quantity = self.resource_combine(resources)
+            total_quantity = sum((cost for resource, cost in resource_quantity))
+            ind += 1
+            if all((owner.check_resources(rc) for rc in resource_quantity)) and total_quantity > 0:
+                success = self.do_act(act='gain {}wsg'.format(total_quantity),owner=owner,tile=None)
+            if success:
+                assert(all((owner.take_resources(rc) for rc in resource_quantity)))
+        elif act[ind] == 'peek':
+            ind += 1
+            owner.peek(int(act[ind]))
+            ind += 1
         else:
             pass
         if ind != len(act):
@@ -704,8 +718,10 @@ class Player:
                 pass_choices.add(cc)
         selected = selectionMaker('Purchase',list(pass_choices))
         self.shop.purchase(selected,self)
-    #give user options
-
+    def peek(self, number):
+        selectionMaker('Peeked Underling',self.shop.peek(number))
+            
+#give user options
 def selectionMaker(option_type, options):
     in_val = ''
     while not isInt(in_val) or int(in_val) < 0 or int(in_val) >= len(options) :
@@ -740,6 +756,9 @@ class Shop:
                     self.shop_underlings[shop_tier+1][und_index] = self.shop_underlings[shop_tier][und_index]
         age = self.check_age(round_number)
         self.shop_underlings[0] = [self.underling_factory.get_underling(age) for i in range(NUM_UNDERLINGS_SHOP_TIER)]
+    def peek(self,number):
+        age = self.check_age(self.current_round+1)
+        return self.underling_factory.peek_underling(age,number)
     def check_age(self, round_number):
         age = 0
         if round_number <= 4:
@@ -819,6 +838,8 @@ class GameObject:
         self.start_player = (self.start_player + 1)%len(self.players)
         self.current_player = self.start_player
     def next_player(self, clockwise=True):
+        if self.all_players_passed():
+            return None
         delta = 1 if clockwise else -1 + len(self.players)
         self.current_player = (self.current_player + delta)%len(self.players)
         while self.players[self.current_player].is_passed():
@@ -841,7 +862,7 @@ class GameObject:
             
         
 
-NUM_UNDERLINGS_SHOP_TIER = 5
+NUM_UNDERLINGS_SHOP_TIER = 4
 NUM_SHOP_TIERS = 2
 NUM_UNDERLINGS = 5
 NUM_UNDERLING_TYPES = 4
@@ -876,16 +897,15 @@ if __name__ == "__main__":
     #go.players[0].give_tile(go.map_grid.map_tiles[3][5])
 
     #print go.map_grid.get_rivers()
-
+    print go.map_grid
+    go.place_initial_settlements()
+    
     for round_number in range(1,10):
-        
-        print go.map_grid
         underling_name = ''
-        current_player = go.get_current_player().player_number
-        go.place_initial_settlements()
         print go.map_grid
         go.new_round()
         while not go.all_players_passed():
+            current_player = go.get_current_player().player_number
             print 'Player {} Turn'.format(current_player)
             underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.get_current_player().underlings if und.has_action()]+['Exit'])
             success = False
@@ -897,7 +917,7 @@ if __name__ == "__main__":
             elif underling_name == 'Display Map':
                 print go.map_grid
             elif underling_name == 'Display Player':
-                print go.players[current_player]
+                print go.get_current_player()
             elif underling_name == 'Display Shop':
                 print go.shop
             else:
