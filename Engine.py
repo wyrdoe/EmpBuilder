@@ -172,18 +172,21 @@ class Map_grid:
                     if not any((val in found_group for found_group in found_groups)):
                         group = set()
                         self.recurse_connections(tile,owner,lambda tile, owner: tile.get_owner() == own, group)
-                        found_groups.append(group)
+                        found_groups.append([coord for coord, dist in group])
         return found_groups
     
     #find all connected settlements
-    def recurse_connections(self,tile,owner,condition,group_so_far,dist=None):
-        if dist == None or dist > 0:
-            dist = dist - 1 if dist != None else None
-            group_so_far.add(self.coord_to_val(*tile.coords()))
+    def recurse_connections(self,tile,condition_arg,condition,group_so_far,dist=None,dist_decrement=None,dist_stop_condition=None):
+        if dist_decrement == None:
+            dist_decrement = lambda tile, dist: dist - 1 if dist != None else None
+        if dist_stop_condition == None:
+            dist_stop_condition = lambda tile, dist: dist != None and dist < 0
+        if not dist_stop_condition(tile,dist):
+            new_dist = dist_decrement(tile,dist)
+            group_so_far.add((self.coord_to_val(*tile.coords()),dist))
             for a_tile in tile.get_neighbours():
-                #if a_tile.get_owner() == owner and self.coord_to_val(*a_tile.coords()) not in group_so_far:
-                if condition(a_tile,owner) and self.coord_to_val(*a_tile.coords()) not in group_so_far:
-                    self.recurse_connections(a_tile,owner,condition,group_so_far,dist)
+                if condition(a_tile,condition_arg) and (self.coord_to_val(*a_tile.coords()),new_dist) not in group_so_far:
+                    self.recurse_connections(a_tile,condition_arg,condition,group_so_far,new_dist,dist_decrement,dist_stop_condition)
     def build_at(self,x,y,player_num):
         return self.map_tiles[x][y].construct(player_num)
     def upgrade_at(self,x,y,player_num):
@@ -197,46 +200,34 @@ class Map_grid:
                     if not any((val in found_group for found_group in found_groups)):
                         group = set()
                         self.recurse_connections(tile,None,lambda tile, owner: tile.is_river(),group)
-                        found_groups.append(group)
+                        found_groups.append([coord for coord,dist in group])
         return found_groups
-    def get_buildable(self,owned_tiles,dist=None,terrain_agnostic=True, river_allowed=False,river_dist=0,citadel_only=False): #get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist)
+    
+    def get_buildable(self,owned_tiles, dist=None, terrain_agnostic=True, river_allowed=False, water_dist=0, citadel_only=False): #get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,water_dist)
         if dist == None:
             return self.get_buildable_global(river_allowed,citadel_only)
         extra_tiles = set()
         river_buidable = set()
         if river_allowed:
-            condition = lambda source_tile, dest_tile: dest_tile.is_river_buildable()
+            condition = lambda dest_tile, source_tile: dest_tile.is_river_buildable()
         elif not terrain_agnostic:
-            condition = lambda source_tile, dest_tile: dest_tile.is_buildable() and source_tile.same_terrain(dest_tile)
+            condition = lambda dest_tile, source_tile: dest_tile.is_buildable() and source_tile.same_terrain(dest_tile)
         else:
-            condition = lambda source_tile, dest_tile: dest_tile.is_buildable()
-        
+            condition = lambda dest_tile, source_tile: dest_tile.is_buildable()
+        search_condition = lambda dest_tile, source_tile: dest_tile.is_river_buildable()
+        dist_decrement = lambda tile, dist: (dist[0], dist[1] - 1 if dist[1] != None else dist[1]) if tile.is_river() else (dist[0] - 1, 0)
+        dist_stop_condition = lambda tile, dist: dist[1] != None and dist[1] <= 0 if tile.is_river() else dist[0] != None and dist[0] <= 0
+        all_options = set()
         for tile in owned_tiles:
-            for a_tile in tile.get_neighbours():
-                extra_tiles.add((tile,a_tile))
-                if a_tile.is_river():
-                    pass
-##                    for i in range(river_dist-1):
-##                        new_river = []
-##                        #source_tile,dest_tile in
-                        #todo RIVER
-                    
-        #really inefficient with large values of dist, but better than copying for small numbers which are the expected
-        for i in range(dist-1): 
-            new_extra = []
-            for source_tile,dest_tile in extra_tiles:
-                for a_tile in dest_tile.get_neighbours():
-                    new_extra.append((source_tile,a_tile))
-            for extra in new_extra:
-                extra_tiles.add(extra)
-        retval = set()
-        for extra in extra_tiles:
-            source_tile,dest_tile = extra
-            dest_tile.is_buildable()
-            source_tile.same_terrain(dest_tile)
-            if condition(source_tile,dest_tile):
-                retval.add(dest_tile)
-        return list(retval)
+            group = set()
+            for nt in tile.get_neighbours():
+                self.recurse_connections(nt, tile, search_condition, group, (dist, water_dist), dist_decrement,dist_stop_condition)
+            for coord,d in group:
+                x,y = self.val_to_coord(coord)
+                buidable_tile = self.map_tiles[x][y]
+                if condition(buidable_tile,tile):
+                    all_options.add(buidable_tile)
+        return list(all_options)
     def get_buildable_global(self,river_allowed=False,citadel_only=False):
         if river_allowed and citadel_only:
             condition = lambda tile: tile.is_river_buildable() and any((True for t in tile.get_neighbours() if t.is_citadel()))
@@ -362,9 +353,6 @@ class Underling():
         self.pass_reward  = [self.transient_resource_parse(reward_str) for reward_str in line_split[3].strip().split('|')]
         self.name     = line_split[4].strip()
         self.activate_text = " ".join(line_split[5:]).lower().strip()
-        #self.activations = []
-        #for act in self.activate_text.split(','):
-        #    self.activations.append(self.activation_parse(act.strip()))
         self.reset()
     def copy(self):
         return Underling(self.line)
@@ -427,7 +415,7 @@ class Underling():
                 ind += 1
                 owner.do_gain_free_underling()
         if ind != len(acts):
-            print self,ind, acts
+            print [self],[ind], [acts]
             assert(0)
         return success
         
@@ -459,16 +447,16 @@ class Underling():
             buildable_tiles = []
             dist = 1
             river_allowed = False
-            river_dist = 0
+            water_dist = 0
             citadel_only = False
             terrain_agnostic = True
             if len(act) > ind:
                 if act[ind] == 'river':
                     river_allowed = True
-                    river_dist = None
+                    water_dist = None
                     ind += 1
                 elif act[ind] == 'water':
-                    river_dist = int(act[ind+1])
+                    water_dist = int(act[ind+1])
                     ind += 2
                 elif act[ind] == 'citadel':
                     citadel_only = True
@@ -483,7 +471,7 @@ class Underling():
                     
             #Add basic cost tiles:
             if all((owner.check_resources(rc) for rc in resource_cost)):
-                buildable_tiles = [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist,citadel_only)]
+                buildable_tiles = [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,water_dist,citadel_only)]
             if len(act) > ind:
                 if act[ind] == 'jump':
                     dist +=1
@@ -496,7 +484,7 @@ class Underling():
                 ind += 1
                 resource_cost = self.resource_combine(resources)
                 if all((owner.check_resources(rc) for rc in resource_cost)):
-                    buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist,citadel_only)]
+                    buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,water_dist,citadel_only)]
             #Add further cost tiles:
             
             if len(buildable_tiles) == 0:
@@ -504,7 +492,7 @@ class Underling():
             else:
                 if len(buildable_tiles) > 1:
                     show_tiles(owner.map_grid,[t for t, c in buildable_tiles])
-                    tile,cost = selectionMaker('Settlement to build',buildable_tiles)
+                    tile,cost = selectionMaker('Settlement to Build',buildable_tiles)
                 else:
                     tile,cost = buildable_tiles[0]
                 success = owner.give_tile(tile)
@@ -579,10 +567,10 @@ class Underling():
                 all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
                 ind += 1
             elif act[ind] == 'owned':
-                all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,water_dist=0)
                 ind += 1
             elif act[ind] == 'anywhere':
-                all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=True,river_dist=0,citadel_only=False)
+                all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=True,water_dist=0,citadel_only=False)
                 ind += 1
             if source_tile == 'None':
                 success = False
@@ -757,11 +745,11 @@ class Player:
         return not any((underling.has_action() for underling in self.underlings))
     def use_underling(self,underling_pos):
         return self.underlings[underling_pos].activate(self)
-    def get_buildable(self,dist,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False):
-        return self.map_grid.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist,citadel_only)
-    def get_buildable_sans_tile(self,tile,dist,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False):
+    def get_buildable(self,dist,terrain_agnostic=True,river_allowed=False,water_dist=0,citadel_only=False):
+        return self.map_grid.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,water_dist,citadel_only)
+    def get_buildable_sans_tile(self,tile,dist,terrain_agnostic=True,river_allowed=False,water_dist=0,citadel_only=False):
     #used to remove one tile from consideration
-        return self.map_grid.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,river_dist,citadel_only)                                
+        return self.map_grid.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,water_dist,citadel_only)                                
     def do_pass(self):
         rewards = [(0,0)]
         for underling in self.underlings:
@@ -867,7 +855,7 @@ class GameObject:
         self.players = []
         for player_num in range(num_players):
             self.players.append(Player(player_num,self.shop,self.map_grid,self.mission_factory))
-            self.players[player_num].give_resources(('w',4))
+            self.players[player_num].give_resources(('w',6))
             self.players[player_num].give_resources(('s',4))
             self.players[player_num].give_resources(('g',4))
         assert(NUM_MISSIONS_EACH > NUM_MISSION_TYPES)
@@ -917,7 +905,8 @@ class GameObject:
             for j in range(len(self.players)):
                 all_tiles = self.map_grid.valid_initial_placement(self.current_player)
                 show_tiles(self.map_grid,all_tiles)
-                selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
+                #selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
+                selection = all_tiles[0]
                 self.get_current_player().give_tile(selection)
                 self.next_player(clockwise)
             self.next_player(not clockwise)
