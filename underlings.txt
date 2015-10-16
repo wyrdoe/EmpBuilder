@@ -1,4 +1,8 @@
 type; cost; on_buy on_pass; name; activate;
+start; 3; 0; 1; Sailor Builder; build 4W water 2, move here;
+start; 4; 0; 2; River Builder; build 2W+2S river;
+start; 3C; score 2; 1C; Teleporter; build 3SW anywhere;
+start; 3C; score 2; 1C; Levitator; gain 1G, move anywhere;
 start; 0; 0; 1; builder; build 4W cross 2W;
 start; 0; 0; 1; architect; upgrade 3S+3G;
 start; 0; 0; 1; woodsman; gain 2W;

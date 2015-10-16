@@ -18,7 +18,7 @@ class Tile:
         self.neighbours = []
         self.owner = None
         self.building_level = 0
-        self.citadel = 'C'
+        self.citadel = 'c'
     def __repr__(self):
         return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
     def __str__(self):
@@ -34,7 +34,7 @@ class Tile:
     def is_buildable(self):
         return self.is_river_buildable() and not self.is_river()
     def is_river_buildable(self): #is river or buidable terrain
-        return not (self.owner!=None or self.terrain == None or self.terrain == self.citadel)
+        return not (self.owner!=None or self.terrain == None or self.is_citadel())
     def same_terrain(self,tile):
         return self.terrain.lower() == tile.terrain.lower() if self.terrain and tile.terrain else False
     def construct(self,player_num):
@@ -72,9 +72,9 @@ class Tile:
     def is_city(self):
         return self.building_level == 1
     def is_citadel(self):
-        return self.terrain.lower() == 'c'
+        return self.terrain.lower() == self.citadel
     def is_outer_citadel(self):
-        return self.terrain == 'C'
+        return self.terrain == self.citadel.upper()
     def get_owner(self):
         return self.owner
     def coords(self):
@@ -423,6 +423,9 @@ class Underling():
                     ind+=1
                     for i in range(num):
                         owner.discard_mission()
+            elif acts[ind] == 'underling':
+                ind += 1
+                owner.do_gain_free_underling()
         if ind != len(acts):
             print self,ind, acts
             assert(0)
@@ -474,6 +477,7 @@ class Underling():
                 elif act[ind] == 'anywhere':
                     ind += 1
                     dist = None
+                    river_allowed = True
                 elif act[ind] == 'cross':
                     terrain_agnostic = False
                     
@@ -491,8 +495,8 @@ class Underling():
                     resources += self.resource_parse(owner,cost,'Additional Resource')
                 ind += 1
                 resource_cost = self.resource_combine(resources)
-            if all((owner.check_resources(rc) for rc in resource_cost)):
-                buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist,citadel_only)]
+                if all((owner.check_resources(rc) for rc in resource_cost)):
+                    buildable_tiles += [(tile, resource_cost) for tile in owner.get_buildable(dist,terrain_agnostic,river_allowed,river_dist,citadel_only)]
             #Add further cost tiles:
             
             if len(buildable_tiles) == 0:
@@ -570,19 +574,19 @@ class Underling():
             source_tiles = [t for t in owner.get_tiles() if t != tile]
             show_tiles(owner.map_grid,source_tiles)
             source_tile = selectionMaker('Settlement to Move', ['None'] + source_tiles)
+            if act[ind] == 'here':
+                assert(tile != None)
+                all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
+                ind += 1
+            elif act[ind] == 'owned':
+                all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
+                ind += 1
+            elif act[ind] == 'anywhere':
+                all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=True,river_dist=0,citadel_only=False)
+                ind += 1
             if source_tile == 'None':
                 success = False
             else:
-                if act[ind] == 'here':
-                    assert(tile != None)
-                    all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
-                    ind += 1
-                elif act[ind] == 'owned':
-                    all_tiles = owner.get_buildable_sans_tile(source_tile,dist=1,terrain_agnostic=True,river_allowed=False,river_dist=0)
-                    ind += 1
-                elif act[ind] == 'anywhere':
-                    all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False)
-                    ind += 1
                 show_tiles(owner.map_grid,all_tiles)
                 dest_tile = selectionMaker('Movement Destination',all_tiles)
                 success = owner.move_tile(source_tile,dest_tile)
@@ -618,7 +622,7 @@ class Underling():
         else:
             pass
         if ind != len(act):
-            print self,ind, act
+            print [self],[ind],[act]
             assert(0)
         return success,tile
 
@@ -732,10 +736,12 @@ class Player:
     def discard_mission(self):
         selected = selectionMaker('Mission to Discard',self.missions)
         self.missions.remove(selected)
-    def give_underling(self,a_underling):
+    def gain_underling(self,a_underling):
+        self.underlings.append(a_underling)
+    def buy_underling(self,a_underling):
         success = a_underling.do_buy(self)
         if success:
-            self.underlings.append(a_underling)
+            self.gain_underling(a_underling)
 
     def replace_underling(self,a_underling,b_underling):
         try:
@@ -771,6 +777,9 @@ class Player:
                 pass_choices.add(cc)
         selected = selectionMaker('Purchase',list(pass_choices))
         self.shop.purchase(selected,self)
+    def do_gain_free_underling(self):
+        selected = selectionMaker('Free Underling',self.shop.all_underlings_on_sale())
+        self.shop.gain(selected,self)
     def peek(self, number):
         selectionMaker('Peeked Underling',self.shop.peek(number))        
     
@@ -810,6 +819,8 @@ class Shop:
         else:
             age = 3
         return age
+    def all_underlings_on_sale(self):
+        return [und for tier in self.shop_underlings for und in tier if und != None]
     #return the currently affordable underlings and resources
     def affordable(self,reward):
         affordable_list = []
@@ -832,11 +843,19 @@ class Shop:
             for und_index in range(NUM_UNDERLINGS_SHOP_TIER):
                 if self.shop_underlings[shop_tier][und_index] == purchase_selection:
                     self.shop_underlings[shop_tier][und_index] = None
-                    owner.give_underling(purchase_selection)
+                    owner.buy_underling(purchase_selection)
                     purchase_selection.do_pass()
                     return True
         return False
-                
+    def gain(self,gain_selection,owner):
+        for shop_tier in range(NUM_SHOP_TIERS):
+            for und_index in range(NUM_UNDERLINGS_SHOP_TIER):
+                if self.shop_underlings[shop_tier][und_index] == gain_selection:
+                    self.shop_underlings[shop_tier][und_index] = None
+                    owner.gain_underling(gain_selection)
+                    gain_selection.do_pass()
+                    return True
+        return False   
         
 class GameObject:
     def __init__(self,num_players):
@@ -863,7 +882,7 @@ class GameObject:
         #Give players a copy of the starting Underlings
         for underling in range(NUM_UNDERLINGS):
             for a_player in self.players:
-                a_player.give_underling(self.underling_factory.get_underling(0,underling).copy())
+                a_player.gain_underling(self.underling_factory.get_underling(0,underling).copy())
         self.start_player = randint(0,num_players-1)
         self.current_player = self.start_player
     def __repr__(self):
@@ -886,7 +905,6 @@ class GameObject:
         self.current_player = (self.current_player + delta)%len(self.players)
         while self.players[self.current_player].is_passed():
             self.current_player = (self.current_player + delta)%len(self.players)
-
         return self.current_player
     def get_current_player(self):
         return self.players[self.current_player]
