@@ -19,6 +19,10 @@ class Tile:
         self.owner = None
         self.building_level = 0
         self.citadel = 'C'
+    def __repr__(self):
+        return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
+    def __str__(self):
+        return '{},{}: {}'.format(self.x,self.y,(self.terrain if self.terrain else '.'))
     def add_neighbour(self,neighbour):
         if neighbour.terrain != None and self.terrain != None:
             self.neighbours.append(neighbour)
@@ -75,10 +79,6 @@ class Tile:
         return self.owner
     def coords(self):
         return (self.x,self.y)
-    def __repr__(self):
-        return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
-    def __str__(self):
-        return '{},{}: {}'.format(self.x,self.y,(self.terrain if self.terrain else '.'))
         
 class Map_grid:
     def __init__(self):
@@ -282,17 +282,22 @@ class Mission_factory():
             self.fields = mission_file.readline()
             self.all_missions = [[] for i in range(NUM_MISSION_TYPES)]
             self.mission_index = [0 for i in range(NUM_MISSION_TYPES)]
-            mission_type_lookup = {'green':0,
+            self.mission_type_lookup = {'green':0,
                                    'blue':1,
                                    'red':2}
             for mission_num, line in enumerate(mission_file.read().split('\n')):
                 a_mission = Mission(line)
-                self.all_missions[mission_type_lookup[a_mission.mission_type]].append(a_mission)
+                self.all_missions[self.mission_type_lookup[a_mission.mission_type]].append(a_mission)
             for i in range(NUM_MISSION_TYPES):
                 shuffle(self.all_missions[i])
-    def get_mission(self,mission_type=None):
+    def __repr__(self):
+        a_str = self.fields
+        return a_str+'\n'.join((str(m) for mis in self.all_missions for m in mis))
+    def get_mission(self,mission_type=None):        
         assert(sum(self.mission_index)<sum((len(mis) for mis in self.all_missions)))
         if mission_type != None:
+            if not (self.mission_index[mission_type] < len(self.all_missions[mission_type])):
+                return None
             assert(self.mission_index[mission_type] < len(self.all_missions[mission_type]))
             
         while mission_type == None:
@@ -301,9 +306,8 @@ class Mission_factory():
                 mission_type = None
         self.mission_index[mission_type] += 1
         return self.all_missions[mission_type][self.mission_index[mission_type]-1]
-    def __repr__(self):
-        a_str = self.fields
-        return a_str+'\n'.join((str(m) for mis in self.all_missions for m in mis))
+    def get_mission_types(self):
+        return self.mission_type_lookup
 
 class Underling_factory():
     def __init__(self):
@@ -344,7 +348,6 @@ class Underling_factory():
     def __repr__(self):
         a_str = self.fields
         return a_str+'\n'.join((str(u) for und in self.all_underlings for u in und))
-        #TODO
     #return an underling to the deck
     def discard(self,a_underling):
         self.all_underlings[self.underling_type_lookup[a_underling.underling_type]].append(a_underling)
@@ -355,7 +358,7 @@ class Underling():
         line_split = line.strip().split(';')
         self.underling_type = line_split[0].strip().lower()
         self.cost     = self.transient_resource_parse(line_split[1])
-        self.on_buy   = line_split[2].strip()
+        self.on_buy   = line_split[2].strip().lower()
         self.pass_reward  = [self.transient_resource_parse(reward_str) for reward_str in line_split[3].strip().split('|')]
         self.name     = line_split[4].strip()
         self.activate_text = " ".join(line_split[5:]).lower().strip()
@@ -390,6 +393,41 @@ class Underling():
             reward = self.pass_reward
             self.position = 1
         return reward
+    def do_buy(self,owner):
+        success = True
+        for event in self.on_buy.split(','):
+            acts = event.split()
+            ind = 0
+            if acts[ind] == '0':
+                ind += 1
+                pass
+            elif acts[ind] == 'score':
+                owner.give_score(reward)
+            elif acts[ind] == 'draw':
+                ind += 1
+                num = int(acts[ind])
+                ind += 1
+                if acts[ind] == 'mission':
+                    ind+=1
+                    for i in range(num):
+                        mission_types = owner.get_mission_types()
+                        success = False
+                        while not success:
+                            selected = selectionMaker('Type of Mission to Draw',mission_types.keys())
+                            success = owner.draw_mission(mission_types[selected])
+            elif acts[ind] == 'discard':
+                ind += 1
+                num = int(acts[ind])
+                ind += 1
+                if acts[ind] == 'mission':
+                    ind+=1
+                    for i in range(num):
+                        owner.discard_mission()
+        if ind != len(acts):
+            print self,ind, acts
+            assert(0)
+        return success
+        
     def transient_resource_parse(self,parse_str):
         parse_str_stripped = parse_str.strip().lower()
         crystal = 0
@@ -461,6 +499,7 @@ class Underling():
                 success = False
             else:
                 if len(buildable_tiles) > 1:
+                    show_tiles(owner.map_grid,[t for t, c in buildable_tiles])
                     tile,cost = selectionMaker('Settlement to build',buildable_tiles)
                 else:
                     tile,cost = buildable_tiles[0]
@@ -506,6 +545,7 @@ class Underling():
                     success = False
                 else:
                     if len(all_settlements) > 1:
+                        show_tiles(owner.map_grid,all_settlements)
                         tile = selectionMaker('Settlement to Upgrade',all_settlements)
                     else:
                         tile = all_settlements[0]
@@ -527,7 +567,9 @@ class Underling():
         elif act[ind] == 'move':
             ind += 1
             all_tiles = []
-            source_tile = selectionMaker('Settlement to Move', ['None'] + [t for t in owner.get_tiles() if t != tile])
+            source_tiles = [t for t in owner.get_tiles() if t != tile]
+            show_tiles(owner.map_grid,source_tiles)
+            source_tile = selectionMaker('Settlement to Move', ['None'] + source_tiles)
             if source_tile == 'None':
                 success = False
             else:
@@ -541,7 +583,7 @@ class Underling():
                 elif act[ind] == 'anywhere':
                     all_tiles = owner.get_buildable(dist=None,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False)
                     ind += 1
-                
+                show_tiles(owner.map_grid,all_tiles)
                 dest_tile = selectionMaker('Movement Destination',all_tiles)
                 success = owner.move_tile(source_tile,dest_tile)
         elif act[ind] == 'exchange':
@@ -558,7 +600,6 @@ class Underling():
             if success:
                 assert(all((owner.take_resources(rc) for rc in resource_cost)))
         elif act[ind] == 'trade':
-            #TODO
             ind += 1
             resources = []
             for cost in act[ind].split('+'):
@@ -626,10 +667,11 @@ class Underling():
     
 #Each player has a set of missions and a collection of underlings, they also have resource cubes
 class Player:
-    def __init__(self,player_number,shop,map_grid):
+    def __init__(self,player_number,shop,map_grid,mission_factory):
         self.player_number = player_number
-        self.map = map_grid
+        self.map_grid = map_grid
         self.shop = shop
+        self.mission_factory = mission_factory
         self.missions = []
         self.underlings = []
         self.resources = {'g':0,'w':0,'s':0}
@@ -678,9 +720,23 @@ class Player:
     def give_score(self,quantity):
         self.score += quantity
     def give_mission(self,a_mission):
-        self.missions.append(a_mission)
+        success = False
+        if a_mission != None:
+            self.missions.append(a_mission)
+            success = True
+        return success
+    def draw_mission(self, mission_type):
+        return self.give_mission(self.mission_factory.get_mission(mission_type))
+    def get_mission_types(self):
+        return self.mission_factory.get_mission_types()
+    def discard_mission(self):
+        selected = selectionMaker('Mission to Discard',self.missions)
+        self.missions.remove(selected)
     def give_underling(self,a_underling):
-        self.underlings.append(a_underling)
+        success = a_underling.do_buy(self)
+        if success:
+            self.underlings.append(a_underling)
+
     def replace_underling(self,a_underling,b_underling):
         try:
             ind = self.underlings.index(a_underling)
@@ -692,17 +748,14 @@ class Player:
             underling.reset()
     #a player is passed when all underlings have been used
     def is_passed(self):
-        for underling in self.underlings:
-            if underling.has_action():
-                return False
-        return True
+        return not any((underling.has_action() for underling in self.underlings))
     def use_underling(self,underling_pos):
         return self.underlings[underling_pos].activate(self)
     def get_buildable(self,dist,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False):
-        return self.map.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist,citadel_only)
+        return self.map_grid.get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,river_dist,citadel_only)
     def get_buildable_sans_tile(self,tile,dist,terrain_agnostic=True,river_allowed=False,river_dist=0,citadel_only=False):
     #used to remove one tile from consideration
-        return self.map.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,river_dist,citadel_only)                                
+        return self.map_grid.get_buildable([t for t in self.tiles if t != tile],dist,terrain_agnostic,river_allowed,river_dist,citadel_only)                                
     def do_pass(self):
         rewards = [(0,0)]
         for underling in self.underlings:
@@ -719,18 +772,7 @@ class Player:
         selected = selectionMaker('Purchase',list(pass_choices))
         self.shop.purchase(selected,self)
     def peek(self, number):
-        selectionMaker('Peeked Underling',self.shop.peek(number))
-            
-#give user options
-def selectionMaker(option_type, options):
-    in_val = ''
-    while not isInt(in_val) or int(in_val) < 0 or int(in_val) >= len(options) :
-        print 'Please type the number of your selection of a {} from the following options:'.format(option_type)
-        for ind, opt in enumerate(options):
-            print '{}): {}'.format(ind,str(opt).strip())
-        in_val = raw_input()
-    return options[int(in_val)]
-        
+        selectionMaker('Peeked Underling',self.shop.peek(number))        
     
 class Shop:
     def __init__(self, underling_factory):
@@ -805,10 +847,10 @@ class GameObject:
         self.shop = Shop(self.underling_factory)
         self.players = []
         for player_num in range(num_players):
-            self.players.append(Player(player_num,self.shop,self.map_grid))
-            self.players[player_num].give_resources(('w',1))
-            self.players[player_num].give_resources(('s',1))
-            self.players[player_num].give_resources(('g',1))
+            self.players.append(Player(player_num,self.shop,self.map_grid,self.mission_factory))
+            self.players[player_num].give_resources(('w',4))
+            self.players[player_num].give_resources(('s',4))
+            self.players[player_num].give_resources(('g',4))
         assert(NUM_MISSIONS_EACH > NUM_MISSION_TYPES)
         #Give each player one mission of each type
         for mission_type in range(NUM_MISSION_TYPES):
@@ -844,6 +886,7 @@ class GameObject:
         self.current_player = (self.current_player + delta)%len(self.players)
         while self.players[self.current_player].is_passed():
             self.current_player = (self.current_player + delta)%len(self.players)
+
         return self.current_player
     def get_current_player(self):
         return self.players[self.current_player]
@@ -855,18 +898,41 @@ class GameObject:
                 clockwise = False
             for j in range(len(self.players)):
                 all_tiles = self.map_grid.valid_initial_placement(self.current_player)
+                show_tiles(self.map_grid,all_tiles)
                 selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
                 self.get_current_player().give_tile(selection)
                 self.next_player(clockwise)
             self.next_player(not clockwise)
             
+#UI:
+#give user options
+def selectionMaker(option_type, options):
+    in_val = ''
+    while not isInt(in_val) or int(in_val) < 0 or int(in_val) >= len(options) :
+        print 'Please type the number of your selection of a {} from the following options:'.format(option_type)
+        for ind, opt in enumerate(options):
+            print '{}): {}'.format(ind,str(opt).strip())
+        in_val = raw_input()
+    return options[int(in_val)]
+def show_tiles(map_grid,tiles):
+    lines = []
+    for col in range(map_grid.map_dimension):
+        line = [' '] if col % 2 else []
+        for row in range(map_grid.map_dimension):
+            tile = map_grid.map_tiles[row][col]
+            if tile in tiles:
+                line.append('{}X '.format(tile.terrain))
+            else:
+                line.append((tile.__repr__()))
+        lines.append(' '.join(line))
+    print '\n'.join(lines)
+    
         
-
 NUM_UNDERLINGS_SHOP_TIER = 4
 NUM_SHOP_TIERS = 2
 NUM_UNDERLINGS = 5
 NUM_UNDERLING_TYPES = 4
-NUM_MISSIONS_EACH = 7
+NUM_MISSIONS_EACH = 5
 NUM_MISSION_TYPES = 3
 NUM_INITIAL_PLACEMENTS = 3
 if __name__ == "__main__":
@@ -897,12 +963,10 @@ if __name__ == "__main__":
     #go.players[0].give_tile(go.map_grid.map_tiles[3][5])
 
     #print go.map_grid.get_rivers()
-    print go.map_grid
     go.place_initial_settlements()
     
     for round_number in range(1,10):
         underling_name = ''
-        print go.map_grid
         go.new_round()
         while not go.all_players_passed():
             current_player = go.get_current_player().player_number
@@ -939,6 +1003,6 @@ if __name__ == "__main__":
         #        print 'group {} found'.format(i),[go.map_grid.val_to_coord(val) for val in vals]
     
 
-#TODO Missions, score round, selection of active underlings, choice of spending only when options exist, building, moving
+#TODO Missions, score round, selection of active underlings, choice of spending only when options exist, on_buy for underlings
 
     
