@@ -905,8 +905,8 @@ class GameObject:
             for j in range(len(self.players)):
                 all_tiles = self.map_grid.valid_initial_placement(self.current_player)
                 show_tiles(self.map_grid,all_tiles)
-                #selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
-                selection = all_tiles[0]
+                selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
+                #selection = all_tiles[0]
                 self.get_current_player().give_tile(selection)
                 self.next_player(clockwise)
             self.next_player(not clockwise)
