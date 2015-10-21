@@ -20,7 +20,7 @@ class Mission():
         self.conditions = []
     def __repr__(self):
         return '{:6} {:4} {:4} {:4} {:20} {:4}'.format(self.mission_type, self.num_groups, self.points, self.connected, self.name, self.condition_text)
-    def check_condition(self, group):
+    def check_condition(self, map_grid, group):
         success = True
         for condition in self.condition_text.split(', '):
             cond = condition.split(' ')
@@ -45,7 +45,6 @@ class Mission():
                 if terrain == cond[ind]:
                     if comb_info[terrain] < int(cond[ind+1]):
                         success = False
-                    #condition failed
                     ind+=2
                     break
             if ind < len(cond) and cond[ind] == 'terrain':
@@ -66,75 +65,83 @@ class Mission():
                 ind += 1
                 if cond[ind] == 'same':
                     ind += 1
-                    successs = False
-                    #TODO
+                    success = False
+                    for river_neighbours in map_grid.get_river_neighbours():
+                        success |= all((tile in river_neighbours for tile in group))
                 elif cond[ind] == 'none':
                     ind += 1
-                    successs = False
-                    #TODO
+                    success = not any((neighbour.is_river() for tile in group for neighbour in tile.get_neighbours()))
 
             if ind < len(cond) and cond[ind] == 'city':
                 ind += 1
                 if cond[ind] == 'shield':
                     ind += 1
-                    successs = False
-                    #TODO
+                    success = any((tile.is_city() and tile.is_shield() for tile in group))
                 elif cond[ind] == 'opponent_city':
                     ind += 1
-                    successs = False
-                    #TODO
+                    success = any((neighbour.is_city() and neighbour.get_owner() != tile.get_owner() for tile in group for neighbour in tile.get_neighbours() if tile.is_city()))
                 else:
                     #number of cities
+                    val = int(cond[ind])
                     ind += 1
-                    successs = False
-                    #TODO
-
+                    city_count = sum((1 for tile in group if tile.is_city()))
+                    success = city_count >= val
+                    
             if ind < len(cond) and cond[ind] == 'citadel':
                 ind += 1
                 if cond[ind] == 'touch':
                     ind += 1
-                    successs = False
-                    #TODO
+                    success = any((neighbour.is_citadel() for tile in group for neighbour in tile.get_neighbours()))
                 elif cond[ind] == 'share':
                     ind += 1
-                    successs = False
-                    #TODO
+                    success = False
+                    for tile in group:
+                        for neighbour in tile.get_neighbours():
+                            if neighbour.is_citadel():
+                                for neighbour_2 in neighbour.get_neighbours():
+                                    if neighbour_2.get_owner() != tile.get_owner():
+                                        success = True
+                                        break
+                            if success:
+                                break
+                        if success:
+                            break
                     
             if ind < len(cond) and cond[ind] == 'shape':
                 ind += 1
                 if cond[ind] == 'triangle':
                     ind += 1
-                    successs = False
+                    success = False
                     #TODO later, may have been removed
                 elif cond[ind] == 'diamond':
                     ind += 1
-                    successs = False
+                    success = False
                     #TODO
                 elif cond[ind] == 'line':
                     ind += 1
-                    successs = False
+                    success = False
                     #TODO
                     
             if ind < len(cond) and cond[ind] == 'shield':
                 ind += 1
-                successs = False
-                #TODO
+                success = any((tile.is_shield() for tile in group))
 
+            #DISCONNECTED CONDITIONS
             if ind < len(cond) and cond[ind] == 'opponent':
                 ind += 1
-                successs = False
+                success = False
                 #TODO
 
             if ind < len(cond) and cond[ind] == 'points':
                 val = int(cond[ind+1])
                 ind += 2
-                successs = False
+                success = False
                 #TODO
 
             if ind < len(cond) and cond[ind] == 'space':
                 val = int(cond[ind+1])
                 ind += 2
-                successs = False
+                success = False
                 #TODO
 
             if self.num_groups > 1:
@@ -216,7 +223,9 @@ class Player:
                                                                        self.score, '\n'.join((str(m) for m in self.missions)),
                                                                        '\n'.join((str(u) for u in self.underlings)))
     def give_tile(self,tile):
-        success = tile.construct(self.player_number)
+        success = False
+        if tile != None:
+            success = tile.construct(self.player_number)
         if success:
             self.tiles.append(tile)
         return success
@@ -397,12 +406,13 @@ class GameObject:
         self.mission_factory = Mission_factory()
         self.underling_factory = Underling_factory()
         self.shop = Shop(self.underling_factory)
+        self.num_players = num_players
         self.players = []
-        for player_num in range(num_players):
+        for player_num in range(self.num_players):
             self.players.append(Player(player_num,self.shop,self.map_grid,self.mission_factory))
-            self.players[player_num].give_resources(('w',6))
-            self.players[player_num].give_resources(('s',4))
-            self.players[player_num].give_resources(('g',4))
+            self.players[player_num].give_resources(('w',1))
+            self.players[player_num].give_resources(('s',1))
+            self.players[player_num].give_resources(('g',1))
         assert(NUM_MISSIONS_EACH > NUM_MISSION_TYPES)
         #Give each player one mission of each type
         for mission_type in range(NUM_MISSION_TYPES):
@@ -416,7 +426,7 @@ class GameObject:
         for underling in range(NUM_UNDERLINGS):
             for a_player in self.players:
                 a_player.gain_underling(self.underling_factory.get_underling(0,underling).copy())
-        self.start_player = randint(0,num_players-1)
+        self.start_player = randint(0,self.num_players-1)
         self.current_player = self.start_player
     def __repr__(self):
         return '\n'.join([str(self.map_grid),str(self.mission_factory),str(self.underling_factory),str(self.shop), '\n'.join((str(p) for p in self.players))])
@@ -429,15 +439,15 @@ class GameObject:
         self.shop.new_round(self.current_round)
         for player in self.players:
             player.new_round()
-        self.start_player = (self.start_player + 1)%len(self.players)
+        self.start_player = (self.start_player + 1)%self.num_players
         self.current_player = self.start_player
     def next_player(self, clockwise=True):
         if self.all_players_passed():
             return None
-        delta = 1 if clockwise else -1 + len(self.players)
-        self.current_player = (self.current_player + delta)%len(self.players)
+        delta = 1 if clockwise else -1 + self.num_players 
+        self.current_player = (self.current_player + delta) % self.num_players 
         while self.players[self.current_player].is_passed():
-            self.current_player = (self.current_player + delta)%len(self.players)
+            self.current_player = (self.current_player + delta) % self.num_players 
         return self.current_player
     def get_current_player(self):
         return self.players[self.current_player]
@@ -455,15 +465,34 @@ class GameObject:
                 self.get_current_player().give_tile(selection)
                 self.next_player(clockwise)
             self.next_player(not clockwise)
-    def scoring_round(self):
-        missions = self.get_current_player().get_missions()
-        mission_vals = []
-        for mission in missions:
-            mission_vals.append(self.map_grid.find_max_number_groups(self.current_player,mission.points,mission.check_condition))
-        selection = selectionMaker('Mission to Score',['None']+[(m,v) for m,v in zip(missions, mission_vals)])
-        if selection == None:
-            #TODO
-            pass
+    def score_rewards(self, player, number_of_rewards):
+        for n in number_of_rewards:
+            if self.current_round  <= 4:
+                player.give_score(6)
+                players.give_resources(('s',1))
+                players.give_resources(('w',1))
+                players.give_resources(('g',1))
+            elif self.current_round <= 7:
+                player.give_score(5)
+                players.give_resources(('s',1))
+                players.give_resources(('w',1))
+            else:
+                player.give_score(4)
+        
+    def scoring_round(self):       
+        for player_offset in range(self.num_players):
+            selection_options = []
+            player_num = (player_offset+self.start_player)%self.num_players
+            player = self.players[player_num]
+            missions = player.get_missions()
+            for mission in missions:
+                mission_result = self.map_grid.find_max_number_groups(player_num,mission.points,mission.check_condition)
+                if mission_result != None:
+                    selection_options.append((mission,mission_result))
+            selection = selectionMaker('Mission to Score',['None']+selection_options)
+            if selection == None:
+                #TODO
+                pass
         
             
 if __name__ == "__main__":
@@ -497,7 +526,6 @@ if __name__ == "__main__":
 ##    go.players[0].give_tile(go.map_grid.map_tiles[5][9])
 ##    go.players[0].give_tile(go.map_grid.map_tiles[6][9])
 
-    #print go.map_grid.get_rivers()
     go.place_initial_settlements()
     
     for round_number in range(1,15):
@@ -511,7 +539,7 @@ if __name__ == "__main__":
             success = False
             if underling_name == 'Exit':
                 pass
-                #sys.exit(0)
+                sys.exit(0)
             elif underling_name == 'Pass':
                 success = go.get_current_player().do_pass()
                 current_player = go.next_player()

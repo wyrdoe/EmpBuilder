@@ -5,8 +5,8 @@ NUM_UNDERLINGS = 5
 NUM_MISSIONS_EACH = 5
 NUM_MISSION_TYPES = 3
 NUM_INITIAL_PLACEMENTS = 3
-DEBUG_MODE = 1
-VERBOSE = 0
+DEBUG_MODE = 0
+VERBOSE = 1
 from random import shuffle, randint
 def isInt(s):
     try: 

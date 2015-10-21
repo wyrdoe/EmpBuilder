@@ -9,6 +9,9 @@ class Tile:
         self.owner = None
         self.building_level = 0
         self.citadel = 'c'
+        self.unbuilt_level = 0
+        self.settlement_level = 1
+        self.city_level = 2
     def __repr__(self):
         return (self.terrain if self.terrain else '.') + (str(self.owner) + str(self.building_level) if self.owner != None else '  ')
     def __str__(self):
@@ -30,7 +33,7 @@ class Tile:
     def construct(self,player_num):
         if self.is_river_buildable():
             self.owner = player_num
-            self.building_level = 1
+            self.building_level = self.settlement_level
         else:
             return False
         return True
@@ -38,13 +41,13 @@ class Tile:
         success = False
         if self.owner == player_num:
             self.owner = None
-            self.building_level = 0
+            self.building_level = self.unbuilt_level
             success = True
         return success
     def upgrade(self,player_num):
         success = False
         if self.owner == player_num:
-            self.building_level += 1
+            self.building_level = self.city_level
             success = True
         return success
     def is_shield(self):
@@ -60,7 +63,7 @@ class Tile:
     def is_grassland(self):
         return self.terrain.lower() == 'g'
     def is_city(self):
-        return self.building_level == 1
+        return self.building_level == self.city_level
     def is_citadel(self):
         return self.terrain.lower() == self.citadel
     def is_outer_citadel(self):
@@ -127,7 +130,10 @@ class Map_grid:
                 complimentary = True
                 #check no tiles are used multiple times
                 if not self.sets_overlap(comb):
-                    return comb
+                    ret_val = []
+                    for a_comb in comb:
+                        ret_val.append([self.tile_at_val(val) for val in a_comb])
+                    return ret_val
         return None
     #find all subgroups which meet the points criteria #TODO do we want to test condition here too?
     def find_groups_worth_points(self,player_num,points,cond):
@@ -150,8 +156,7 @@ class Map_grid:
                                     break
                         if not conditions_met:
                             break
-                    if conditions_met and cond([self.tile_at_val(v) for v in comb]):
-                        print score,len(comb), points
+                    if conditions_met and cond(self,[self.tile_at_val(v) for v in comb]):
                         valid_combinations.append(comb[:])
         return valid_combinations
 
@@ -195,7 +200,17 @@ class Map_grid:
                         self.recurse_connections(tile,None,lambda tile, owner: tile.is_river(),group)
                         found_groups.append([coord for coord,dist in group])
         return found_groups
-    
+    def get_river_neighbours(self):
+        if not hasattr(self, 'river_neighbours'):
+            self.river_neighbours = []
+            for a_river in self.get_rivers():
+                a_river_nieghbours = set()
+                for river_tile_val in a_river:
+                    for a_neighbour in self.tile_at_val(river_tile_val ).get_neighbours():
+                        a_river_nieghbours.add(a_neighbour)
+                self.river_neighbours.append(a_river_nieghbours)
+        return self.river_neighbours
+
     def get_buildable(self,owned_tiles, dist=None, terrain_agnostic=True, river_allowed=False, water_dist=0, citadel_only=False): #get_buildable(self.tiles,dist,terrain_agnostic,river_allowed,water_dist)
         if dist == None:
             return self.get_buildable_global(river_allowed,citadel_only)
