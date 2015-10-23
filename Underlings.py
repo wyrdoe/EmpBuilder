@@ -68,7 +68,7 @@ class Underling():
                 if success:
                     #an act may be split up into several options choose one:
                     if '|' in action:
-                        action = selectionMaker('action to perform',action.split('|'))
+                        action = selectionMaker('action to perform',action.split('|'),owner)
                     new_success,tile = self.do_act(action.strip(),owner,tile)
                     if ind == 0:
                         success = new_success
@@ -105,7 +105,7 @@ class Underling():
                         mission_types = owner.get_mission_types()
                         success = False
                         while not success:
-                            selected = selectionMaker('Type of Mission to Draw',mission_types.keys())
+                            selected = selectionMaker('Type of Mission to Draw',mission_types.keys(),owner)
                             success = owner.draw_mission(mission_types[selected])
             elif acts[ind] == 'discard':
                 ind += 1
@@ -197,13 +197,14 @@ class Underling():
             if len(buildable_tiles) == 0:
                 success = False
             else:
-                if len(buildable_tiles) > 1:
-                    show_tiles(owner.map_grid,[t for t, c in buildable_tiles])
-                    tile,cost = selectionMaker('Settlement to Build',buildable_tiles)
-                else:
-                    tile,cost = buildable_tiles[0]
+                #if len(buildable_tiles) > 1:
+                show_tiles(owner.map_grid,[t for t, c in buildable_tiles])
+                tile,cost = selectionMaker('Settlement to Build',buildable_tiles,owner)
+                #else:
+                #    tile,cost = buildable_tiles[0]
                 success = owner.give_tile(tile)
             if success:
+                print tile, cost
                 assert(all((owner.take_resources(rc) for rc in cost)))
                                      
         elif act[ind] == 'gain':
@@ -245,7 +246,7 @@ class Underling():
                 else:
                     if len(all_settlements) > 1:
                         show_tiles(owner.map_grid,all_settlements)
-                        tile = selectionMaker('Settlement to Upgrade',all_settlements)
+                        tile = selectionMaker('Settlement to Upgrade',all_settlements,owner)
                     else:
                         tile = all_settlements[0]
                     success = tile.upgrade(owner.player_number)
@@ -269,7 +270,7 @@ class Underling():
             all_tiles = []
             source_tiles = [t for t in owner.get_tiles() if t != tile]
             show_tiles(owner.map_grid,source_tiles)
-            source_tile = selectionMaker('Settlement to Move', ['None'] + source_tiles)
+            source_tile = selectionMaker('Settlement to Move', ['None'] + source_tiles,owner)
             if act[ind] == 'here':
                 assert(tile != None)
                 all_tiles = [t for t in tile.get_neighbours() if t.is_buildable()]
@@ -284,7 +285,7 @@ class Underling():
                 success = False
             else:
                 show_tiles(owner.map_grid,all_tiles)
-                dest_tile = selectionMaker('Movement Destination',all_tiles)
+                dest_tile = selectionMaker('Movement Destination',all_tiles,owner)
                 success = owner.move_tile(source_tile,dest_tile)
         elif act[ind] == 'exchange':
             ind += 1
@@ -350,7 +351,7 @@ class Underling():
             ret_val = []
             for i in range(quantity):
                 nothing = 'Nothing'
-                selection = selectionMaker(choice_message,list(to_parse[1:])+([nothing] if optional else []))
+                selection = selectionMaker(choice_message,list(to_parse[1:])+([nothing] if optional else []),owner)
                 if selection == nothing:
                     break
                 ret_val.append(selection)

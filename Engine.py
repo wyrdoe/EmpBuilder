@@ -18,8 +18,15 @@ class Mission():
         self.name           = line_split[4].strip()
         self.condition_text = " ".join(line_split[5:]).strip()
         self.conditions = []
+        self.times_scored = 0
     def __repr__(self):
         return '{:6} {:4} {:4} {:4} {:20} {:4}'.format(self.mission_type, self.num_groups, self.points, self.connected, self.name, self.condition_text)
+    def scored(self):
+        self.times_scored += 1
+    def get_times_scored(self):
+        return self.times_scored
+    def is_scorable(self):
+        return self.get_times_scored() < TIMES_A_MISSION_CAN_SCORE
     def check_condition(self, map_grid, group):
         success = True
         for condition in self.condition_text.split(', '):
@@ -218,6 +225,7 @@ class Player:
         self.resources = {'g':0,'w':0,'s':0}
         self.tiles = []
         self.score = 0
+        self.automate = False
     def __repr__(self):
         return 'player_number: {} Resources: {} Score: {}\nMissions:\n{}\nUnderlings:\n{}'.format(self.player_number,self.resources,
                                                                        self.score, '\n'.join((str(m) for m in self.missions)),
@@ -271,11 +279,11 @@ class Player:
     def draw_mission(self, mission_type):
         return self.give_mission(self.mission_factory.get_mission(mission_type))
     def get_missions(self):
-        return self.missions
+        return [mission for mission in self.missions if mission.is_scorable()]
     def get_mission_types(self):
         return self.mission_factory.get_mission_types()
     def discard_mission(self):
-        selected = selectionMaker('Mission to Discard',self.missions)
+        selected = selectionMaker('Mission to Discard',self.missions,self)
         self.missions.remove(selected)
     def gain_underling(self,a_underling):
         self.underlings.append(a_underling)
@@ -316,13 +324,17 @@ class Player:
         for reward in rewards:
             for cc in self.shop.affordable(reward):
                 pass_choices.add(cc)
-        selected = selectionMaker('Purchase',list(pass_choices))
+        selected = selectionMaker('Purchase',list(pass_choices),self)
         self.shop.purchase(selected,self)
     def do_gain_free_underling(self):
-        selected = selectionMaker('Free Underling',self.shop.all_underlings_on_sale())
+        selected = selectionMaker('Free Underling',self.shop.all_underlings_on_sale(),self)
         self.shop.gain(selected,self)
     def peek(self, number):
-        selectionMaker('Peeked Underling',self.shop.peek(number))        
+        selectionMaker('Peeked Underling',self.shop.peek(number),self)
+    def do_automate(self):
+        self.automate = True
+    def is_automated(self):
+        return self.automate
     
 class Shop:
     def __init__(self, underling_factory):
@@ -460,22 +472,31 @@ class GameObject:
             for j in range(len(self.players)):
                 all_tiles = self.map_grid.valid_initial_placement(self.current_player)
                 show_tiles(self.map_grid,all_tiles)
-                selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),all_tiles)
+                additional_options = ['Automate Player','view Player','Show map']
+                selection = ''
+                while selection == '' or selection in additional_options: 
+                    selection = selectionMaker('Player {} Initial Placement'.format(self.current_player),additional_options+all_tiles,self.get_current_player())
+                    if selection == additional_options[0]:
+                        self.get_current_player().do_automate()
+                    elif selection == additional_options[1]:
+                        print self.get_current_player()
+                    elif selection == additional_options[2]:
+                        show_tiles(self.map_grid,all_tiles)
                 #selection = all_tiles[0]
                 self.get_current_player().give_tile(selection)
                 self.next_player(clockwise)
             self.next_player(not clockwise)
     def score_rewards(self, player, number_of_rewards):
-        for n in number_of_rewards:
+        for n in range(number_of_rewards):
             if self.current_round  <= 4:
                 player.give_score(6)
-                players.give_resources(('s',1))
-                players.give_resources(('w',1))
-                players.give_resources(('g',1))
+                player.give_resources(('s',1))
+                player.give_resources(('w',1))
+                player.give_resources(('g',1))
             elif self.current_round <= 7:
                 player.give_score(5)
-                players.give_resources(('s',1))
-                players.give_resources(('w',1))
+                player.give_resources(('s',1))
+                player.give_resources(('w',1))
             else:
                 player.give_score(4)
         
@@ -489,10 +510,15 @@ class GameObject:
                 mission_result = self.map_grid.find_max_number_groups(player_num,mission.points,mission.check_condition)
                 if mission_result != None:
                     selection_options.append((mission,mission_result))
-            selection = selectionMaker('Mission to Score',['None']+selection_options)
-            if selection == None:
+            
+            selection = selectionMaker('Mission to Score',['None']+selection_options,player)
+            if selection == 'None':
                 #TODO
                 pass
+            else:
+                mission, groups = selection
+                self.score_rewards(player,len(groups))
+                mission.scored()
         
             
 if __name__ == "__main__":
@@ -518,14 +544,14 @@ if __name__ == "__main__":
 ##    go.players[0].give_tile(go.map_grid.map_tiles[2][7])
 ##    go.players[0].give_tile(go.map_grid.map_tiles[3][7])
 ##    go.players[0].give_tile(go.map_grid.map_tiles[4][7])
-    ##    go.players[0].give_tile(go.map_grid.map_tiles[5][6])
-##    go.players[0].give_tile(go.map_grid.map_tiles[4][5])
-##    go.players[0].give_tile(go.map_grid.map_tiles[3][5])
-##    go.players[0].give_tile(go.map_grid.map_tiles[5][7])
-##    go.players[0].give_tile(go.map_grid.map_tiles[5][8])
-##    go.players[0].give_tile(go.map_grid.map_tiles[5][9])
-##    go.players[0].give_tile(go.map_grid.map_tiles[6][9])
-
+##    go.players[0].give_tile(go.map_grid.map_tiles[5][6])
+    go.players[2].give_tile(go.map_grid.map_tiles[4][7])
+    go.players[2].give_tile(go.map_grid.map_tiles[3][5])
+    go.players[2].give_tile(go.map_grid.map_tiles[5][7])
+    go.players[2].give_tile(go.map_grid.map_tiles[5][8])
+    go.players[2].give_tile(go.map_grid.map_tiles[5][9])
+    go.players[2].give_tile(go.map_grid.map_tiles[6][9])
+    
     go.place_initial_settlements()
     
     for round_number in range(1,15):
@@ -535,11 +561,11 @@ if __name__ == "__main__":
             current_player = go.get_current_player().player_number
             if VERBOSE:
                 print 'Round {}, Player {} Turn'.format(round_number, current_player)
-            underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.get_current_player().underlings if und.has_action()]+['Exit'])
+            underling_name = selectionMaker('Underling to Activate',['Pass','Display Map','Display Shop','Display Player']+[und.name for und in go.get_current_player().underlings if und.has_action()]+['Exit'],go.get_current_player())
             success = False
             if underling_name == 'Exit':
                 pass
-                sys.exit(0)
+                #sys.exit(0)
             elif underling_name == 'Pass':
                 success = go.get_current_player().do_pass()
                 current_player = go.next_player()
@@ -563,14 +589,10 @@ if __name__ == "__main__":
                     if VERBOSE:
                         print 'action {}, failed'.format(underling_name)
         go.scoring_round()
-        #mg = go.map_grid.find_max_number_groups(0,3)
-        #if mg:
-        #    for i,vals in enumerate(mg):
-        #        print 'group {} found'.format(i),[go.map_grid.val_to_coord(val) for val in vals]
     print 'Final map'
     print go.map_grid
     
 
-#TODO Missions, score round, selection of active underlings, choice of spending only when options exist, on_buy for underlings
+#TODO Some Missions, selection of active underlings, choice of spending only when options exist
 
     

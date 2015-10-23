@@ -5,9 +5,10 @@ NUM_UNDERLINGS = 5
 NUM_MISSIONS_EACH = 5
 NUM_MISSION_TYPES = 3
 NUM_INITIAL_PLACEMENTS = 3
+TIMES_A_MISSION_CAN_SCORE = 2 
 DEBUG_MODE = 0
 VERBOSE = 1
-from random import shuffle, randint
+from random import shuffle, randint,seed
 def isInt(s):
     try: 
         int(s)
@@ -16,12 +17,17 @@ def isInt(s):
         return False
 #UI:
 #give user options
-def selectionMaker(option_type, options):
+def selectionMaker(option_type, options,player):
     in_val = ''
     if len(options) == 0:
         return None
+    if len(options) == 1:
+        return options[0]
     if DEBUG_MODE:
         in_val = randint(0,len(options)-1)
+    if player.is_automated():
+        in_val = randint(0,len(options)-1)
+        print 'Randomly Selecting',options[int(in_val)]
     if VERBOSE and DEBUG_MODE:
         print in_val
     while not isInt(in_val) or int(in_val) < 0 or int(in_val) >= len(options) :
@@ -47,3 +53,4 @@ def show_tiles(map_grid,tiles):
         lines.append(' '.join(line))
     if VERBOSE:
         print '\n'.join(lines)
+seed(0)

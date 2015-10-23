@@ -1,5 +1,6 @@
 from Util import *
 from itertools import combinations
+from Queue import Queue
 class Tile:
     def __init__(self,x,y,terrain):
         self.x = x
@@ -125,8 +126,8 @@ class Map_grid:
         return False
     def find_max_number_groups(self,player_num,points,cond):
         valid_combinations = self.find_groups_worth_points(player_num,points,cond)
-        for num in range(1,len(valid_combinations))[::-1]:
-            for comb in combinations(valid_combinations,num):
+        for num in range(0,len(valid_combinations))[::-1]:
+            for comb in combinations(valid_combinations,num+1):
                 complimentary = True
                 #check no tiles are used multiple times
                 if not self.sets_overlap(comb):
@@ -140,25 +141,36 @@ class Map_grid:
         valid_combinations = []
         for group in self.connected_groups(player_num):
             #Minimum size is points / 2 since cities are worth 2 points
-            for group_size in range((points+1)/2,len(group)):
+            for group_size in range((points+1)/2,len(group)+1):
                 for comb in combinations(group,group_size):
+                    if not self.is_connected(comb):
+                        continue
                     score = 0
                     for ind, val_a in enumerate(comb):
                         tile_a = self.tile_at_val(val_a)
                         score += tile_a.building_level
-                        if ind >= len(comb)-1:
-                            conditions_met = score >= points
-                        else:
-                            conditions_met = False
-                            for val_b in comb[ind+1:]:
-                                if tile_a in self.tile_at_val(val_b).get_neighbours():
-                                    conditions_met = True
-                                    break
-                        if not conditions_met:
+                        conditions_met = score >= points
+                        if conditions_met:
                             break
                     if conditions_met and cond(self,[self.tile_at_val(v) for v in comb]):
                         valid_combinations.append(comb[:])
         return valid_combinations
+
+    #Check entire group is inter connected
+    def is_connected(self, group):
+        todo_queue = Queue(len(group))
+        a_tile = self.tile_at_val(group[0])
+        done = [a_tile]
+        todo_queue.put(a_tile)
+        while len(done) < len(group) and not todo_queue.empty():
+            a_tile = todo_queue.get()
+            for b_tile in a_tile.get_neighbours():
+                if self.coord_to_val(*b_tile.coords()) in group and b_tile not in done:
+                    todo_queue.put(b_tile)
+                    done.append(b_tile)
+        return len(done) == len(group)
+
+        
 
     #return list of all connected groups belonging to one player
     def connected_groups(self,owner):
@@ -234,8 +246,8 @@ class Map_grid:
                 x,y = self.val_to_coord(coord)
                 buidable_tile = self.map_tiles[x][y]
                 if condition(buidable_tile,tile):
-                    all_options.add(buidable_tile)
-        return list(all_options)
+                    all_options.add(coord)
+        return [self.tile_at_val(val) for val in all_options]
     def get_buildable_global(self,river_allowed=False,citadel_only=False):
         if river_allowed and citadel_only:
             condition = lambda tile: tile.is_river_buildable() and any((True for t in tile.get_neighbours() if t.is_citadel()))
